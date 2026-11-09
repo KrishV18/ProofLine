@@ -15,4 +15,10 @@ This document tracks all tools, libraries, and AI-generated content used in the 
 | 2026-11-08 | PyMuPDF           | PDF document parsing                             | Team     | No           |
 | 2026-11-08 | spaCy             | NLP library for text analysis                    | Team     | No           |
 | 2026-11-08 | Initial scaffold  | This ProofLine project scaffold was generated with an AI coding assistant (Antigravity) and reviewed by the team | Team | Yes |
+| 2026-11-09 | Groq API / OpenAI SDK | Live LLM inference (openai/gpt-oss-120b) for grounded tone analysis and claim extraction | Kalash Maheshwari | No |
+| 2026-11-09 | textstat          | Readability scoring (Flesch Reading Ease & Grade Level) | Kalash Maheshwari | No |
+| 2026-11-09 | pypdf             | Document parsing fallback for PDF files          | Kalash Maheshwari | No |
+| 2026-11-09 | bcrypt            | Password hashing for role-based authentication   | Krish Vishwakarma | No |
+| 2026-11-09 | python-jose       | JWT token encoding and verification              | Krish Vishwakarma | No |
+| 2026-11-09 | Round 2 Full MVP  | 4-layer review engine, Claim Ledger, Validator, Intent Lock, and testing frontend | Team | Yes |
 

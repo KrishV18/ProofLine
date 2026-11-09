@@ -1,12 +1,34 @@
 """ProofLine API – pre-publication brand-governance backend."""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.db import SessionLocal, init_db
 from app.routers import audit, auth, drafts, findings, insights, sources
+from app.services.workflow.seed_service import seed_sample_data
 
-app = FastAPI(title="ProofLine API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database and seed baseline data on startup."""
+    init_db()
+    try:
+        db = SessionLocal()
+        seed_sample_data(db)
+        db.close()
+    except Exception:
+        pass
+    yield
+
+
+app = FastAPI(
+    title="ProofLine API",
+    description="Pre-publication brand-governance platform – every claim linked to its proof.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,4 +50,3 @@ app.include_router(audit.router)
 async def health():
     """Health-check endpoint."""
     return {"status": "ok", "service": "proofline-api"}
-
