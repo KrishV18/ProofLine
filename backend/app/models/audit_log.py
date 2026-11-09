@@ -2,8 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy import ForeignKey, JSON, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -14,10 +13,10 @@ class AuditLog(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"), nullable=False)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     entity: Mapped[str | None] = mapped_column(String(100))
-    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     details: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[str] = mapped_column(server_default=func.now())
 

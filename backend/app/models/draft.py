@@ -2,8 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import ForeignKey, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
