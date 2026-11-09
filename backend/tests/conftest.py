@@ -1,25 +1,42 @@
 """Shared test fixtures for ProofLine backend tests.
 
-DB-layer fixtures:
-  - `db_url`     : reads TEST_DATABASE_URL env var, falls back to default.
-  - `db_engine`  : SQLAlchemy engine; session-scoped; SKIPS if no PG reachable.
-  - `alembic_cfg`: loaded AlembicConfig pointing at this project's alembic.ini.
-  - `db_conn`    : per-test connection with automatic transaction rollback.
+IMPORTANT — Database requirements
+----------------------------------
+DB-dependent tests require the PostgreSQL container from docker-compose.yml to
+be running.  If it is not reachable the test session **fails** (not skips) with
+a clear error message telling the user what to do.
 
-Non-DB fixtures:
-  - `client`     : FastAPI TestClient (unchanged from original).
+Start the database with:
+    docker compose up -d db
+
+The tests run against the **proofline_test** database, which is isolated from
+the development database (proofline).  Create it once inside the container:
+    docker exec proofline-db-1 psql -U proofline -c "CREATE DATABASE proofline_test OWNER proofline"
+
+Environment variables:
+    TEST_DATABASE_URL   Override the test DB URL (optional).
+                        Default: postgresql+psycopg://proofline:proofline@localhost:5432/proofline_test
+
+Fixtures provided:
+    client       : FastAPI TestClient (no DB required)
+    db_engine    : Session-scoped SQLAlchemy engine — FAILS session if no PG
+    alembic_cfg  : Alembic Config pointed at alembic.ini with test URL
+    migrated_db  : Runs `alembic upgrade head` once per session, `downgrade base` at teardown
+    db_conn      : Per-test connection; wraps each test in a SAVEPOINT that is
+                   always rolled back so constraint tests cannot bleed.
 """
+from __future__ import annotations
 
 import os
+import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
-
 # ---------------------------------------------------------------------------
-# FastAPI test client (no DB needed)
+# Non-DB fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -29,58 +46,72 @@ def client():
 
 
 # ---------------------------------------------------------------------------
-# Database fixtures (require a running PostgreSQL)
+# Database fixtures
 # ---------------------------------------------------------------------------
 
 DEFAULT_TEST_DB_URL = (
     "postgresql+psycopg://proofline:proofline@localhost:5432/proofline_test"
 )
 
+_UNREACHABLE_MSG = """
+╔══════════════════════════════════════════════════════════════════════╗
+║  ProofLine test database is not reachable.                           ║
+║                                                                      ║
+║  Start the database container and re-run the tests:                  ║
+║    docker compose up -d db                                           ║
+║                                                                      ║
+║  If the container is running but the port differs, set:              ║
+║    $env:TEST_DATABASE_URL = "postgresql+psycopg://..."               ║
+╚══════════════════════════════════════════════════════════════════════╝
+"""
+
 
 @pytest.fixture(scope="session")
 def db_url() -> str:
-    """Return the database URL to use for the test session."""
-    return os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB_URL)
+    """Return the database URL for the test session."""
+    url = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB_URL)
+    os.environ["TEST_DATABASE_URL"] = url
+    return url
 
 
 @pytest.fixture(scope="session")
-def db_engine(db_url):
-    """Create a SQLAlchemy engine for the test DB.
+def db_engine(db_url: str):
+    """Session-scoped SQLAlchemy engine.
 
-    Skips the entire test session if PostgreSQL is not reachable at ``db_url``.
-    The caller must run Alembic migrations separately (see ``test_migrations.py``
-    or the ``migrated_db`` fixture below) before using the engine.
+    FAILS (not skips) the session when PostgreSQL is not reachable, printing
+    a clear message telling the developer to run `docker compose up -d db`.
     """
-    from sqlalchemy import create_engine, text as sa_text
+    from sqlalchemy import create_engine
+    from sqlalchemy import text as sa_text
     from sqlalchemy.exc import OperationalError
 
-    # Add a short TCP connect_timeout so the skip fires quickly when no PG
-    # is available locally (avoids hanging for the OS-level TCP timeout).
+    # Short TCP connect timeout so the error fires quickly instead of waiting
+    # for the OS-level TCP timeout (~2 minutes).
     _url = db_url
     if "connect_timeout" not in _url:
         sep = "&" if "?" in _url else "?"
-        _url = f"{_url}{sep}connect_timeout=3"
+        _url = f"{_url}{sep}connect_timeout=5"
+
     engine = create_engine(_url, pool_pre_ping=True)
     try:
         with engine.connect() as conn:
             conn.execute(sa_text("SELECT 1"))
     except (OperationalError, Exception) as exc:
-        pytest.skip(
-            f"PostgreSQL not reachable at {db_url!r}. "
-            f"Set TEST_DATABASE_URL and start a test database to run DB tests. "
+        pytest.fail(
+            f"{_UNREACHABLE_MSG}\n"
             f"Original error: {exc}"
         )
+
     yield engine
     engine.dispose()
 
 
 @pytest.fixture(scope="session")
-def alembic_cfg(db_url):
+def alembic_cfg(db_url: str):
     """Return an Alembic Config object pointed at this project's alembic.ini."""
-    import pathlib
     from alembic.config import Config
 
-    # The alembic.ini lives two directories up from tests/ (at backend/).
+    # alembic.ini lives at backend/ (two directories above tests/).
     ini_path = pathlib.Path(__file__).parent.parent / "alembic.ini"
     cfg = Config(str(ini_path))
     cfg.set_main_option("sqlalchemy.url", db_url)
@@ -89,13 +120,15 @@ def alembic_cfg(db_url):
 
 @pytest.fixture(scope="session")
 def migrated_db(db_engine, alembic_cfg):
-    """Ensure the schema is at HEAD before running schema-level tests.
+    """Apply `alembic upgrade head` once for the session.
 
-    Runs ``alembic upgrade head``.  After the session, runs
-    ``alembic downgrade base`` to leave the DB clean for the next run.
+    At session teardown, runs `alembic downgrade base` so the test database is
+    left clean for the next run.
     """
     from alembic import command
 
+    # Always start from a clean state (handles leftover state from a crashed run)
+    command.downgrade(alembic_cfg, "base")
     command.upgrade(alembic_cfg, "head")
     yield db_engine
     command.downgrade(alembic_cfg, "base")
@@ -103,12 +136,23 @@ def migrated_db(db_engine, alembic_cfg):
 
 @pytest.fixture
 def db_conn(migrated_db):
-    """Per-test database connection with automatic rollback.
+    """Per-test database connection with automatic SAVEPOINT rollback.
 
-    Uses a SAVEPOINT so individual tests can test constraint violations without
-    aborting the outer transaction.
+    Wraps each test inside a SAVEPOINT so:
+    - Constraint violations abort only the inner savepoint, not the outer txn.
+    - Each test always sees a clean state (rollback on exit).
+    - Tests are fully isolated from each other.
     """
     with migrated_db.connect() as conn:
-        trans = conn.begin()
+        # Outer transaction
+        outer = conn.begin()
+        # Savepoint so that failed constraint checks can be caught without
+        # killing the whole connection.
+        conn.execute(__import__("sqlalchemy").text("SAVEPOINT test_sp"))
         yield conn
-        trans.rollback()
+        # Always roll back to the savepoint, then the outer transaction.
+        try:
+            conn.execute(__import__("sqlalchemy").text("ROLLBACK TO SAVEPOINT test_sp"))
+        except Exception:
+            pass
+        outer.rollback()
