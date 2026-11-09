@@ -380,3 +380,4 @@ def test_unique_receipt_per_version(db_conn):
 
     with pytest.raises(Exception, match="unique|duplicate|uq_claim_receipts_version_id"):
         _insert_receipt(_new_id())  # Second receipt for same version — must fail.
+

@@ -597,3 +597,4 @@ Migration file: [`alembic/versions/0001_initial_schema.py`](../backend/alembic/v
 | `comments` | 9 | Optional text range; composite FKs |
 | `approvals` | 9 | Composite FKs; append-only by convention |
 | `audit_log` | 9 | Trigger-immutable; DESC index on created_at |
+

@@ -45,3 +45,4 @@ def test_upgrade_downgrade_upgrade(db_engine, alembic_cfg):
     tables_up2 = set(insp3.get_table_names())
     missing2 = expected - tables_up2
     assert not missing2, f"Tables missing after second upgrade: {missing2}"
+
