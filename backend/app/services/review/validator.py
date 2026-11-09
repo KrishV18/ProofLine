@@ -55,18 +55,18 @@ def validate_and_filter_findings(
         if quote:
             pos = content.find(quote)
             if pos != -1:
-                f.start = pos
-                f.end = pos + len(quote)
+                f.start_offset = pos
+                f.end_offset = pos + len(quote)
             else:
                 # Bound check
-                f.start = max(0, f.start)
-                f.end = min(len(content), max(f.start + 1, f.end))
+                f.start_offset = max(0, f.start_offset)
+                f.end_offset = min(len(content), max(f.start_offset + 1, f.end_offset))
         else:
-            f.start = 0
-            f.end = min(10, len(content))
+            f.start_offset = 0
+            f.end_offset = min(10, len(content))
 
         # 3. Deduplicate
-        dedup_key = (f.source_ref, f.start, f.end, f.severity)
+        dedup_key = (f.source_ref, f.start_offset, f.end_offset, f.severity)
         if dedup_key in seen_keys:
             continue
         seen_keys.add(dedup_key)

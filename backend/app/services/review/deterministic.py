@@ -4,7 +4,7 @@ import re
 from typing import List
 import textstat
 
-from app.models.term import Term
+from app.models.source import Term
 from app.schemas.finding import FindingBase
 
 

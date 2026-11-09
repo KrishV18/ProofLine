@@ -56,6 +56,15 @@ class GuidelineRule(Base):
         server_default=sa_text("now()"),
     )
 
+    @property
+    def text(self) -> str:
+        """Alias for rule_text to match API schema."""
+        return self.rule_text
+
+    @text.setter
+    def text(self, val: str) -> None:
+        self.rule_text = val
+
     __table_args__ = (
         # Every (org, rule_id, version) triple must be unique.
         sa.UniqueConstraint(

@@ -7,13 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
-from app.models.claim import Claim
-from app.models.draft import Draft
-from app.models.draft_version import DraftVersion
-from app.models.fact import Fact
-from app.models.finding import Finding
-from app.models.guideline_rule import GuidelineRule
-from app.models.term import Term
+from app.models import (
+    Claim,
+    Draft,
+    DraftVersion,
+    Fact,
+    Finding,
+    GuidelineRule,
+    Term,
+)
 from app.schemas.finding import FindingBase
 from app.services.review.claim_ledger import process_claim_ledger
 from app.services.review.deterministic import run_deterministic_checks
@@ -91,11 +93,10 @@ def execute_full_review(
     for c in extracted_claims:
         claim_row = Claim(
             organisation_id=org_id,
-            draft_id=draft.id,
             version_id=version.id,
-            quoted_text=c.quoted_text,
+            claim_text=c.quoted_text,
             status=c.status.value,
-            source_ref=c.source_ref,
+            evidence_fact_key=c.source_ref,
         )
         db.add(claim_row)
         persisted_claims.append(claim_row)
@@ -116,8 +117,8 @@ def execute_full_review(
             draft_id=draft.id,
             version_id=version.id,
             quoted_text=vf.quoted_text,
-            start=vf.start,
-            end=vf.end,
+            start_offset=vf.start_offset,
+            end_offset=vf.end_offset,
             severity=vf.severity,
             reason=vf.reason,
             source_ref=vf.source_ref,
@@ -130,8 +131,7 @@ def execute_full_review(
         db.add(finding_row)
         persisted_findings.append(finding_row)
 
-    # Update draft status
-    draft.status = "reviewed"
+    # Commit findings, claims, and version review state
     db.commit()
 
     # Audit log entry
