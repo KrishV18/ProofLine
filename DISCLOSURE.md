@@ -15,6 +15,5 @@ This document tracks all tools, libraries, and AI-generated content used in the 
 | 2026-11-08 | python-docx        | DOCX document parsing                                                                                              | Team     | No           |
 | 2026-11-08 | PyMuPDF            | PDF document parsing                                                                                               | Team     | No           |
 | 2026-11-08 | spaCy              | NLP library for text analysis                                                                                      | Team     | No           |
-| 2026-11-09 | pytest-postgresql  | Pytest plugin; runs schema constraint tests against a real PostgreSQL test database                                | Team     | No           |
 | 2026-11-08 | Initial scaffold   | ProofLine project scaffold generated with Antigravity (AI coding assistant) and reviewed by the team              | Team     | Yes          |
 | 2026-11-09 | feat/db-schema     | Full database layer (models, migration, tests, docs) generated with Antigravity and reviewed by the team           | Team     | Yes          |
