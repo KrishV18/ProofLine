@@ -1,32 +1,42 @@
-"""ProofLine SQLAlchemy models – import all for Alembic metadata discovery."""
+"""ProofLine SQLAlchemy models.
 
-from app.models.approval import Approval
-from app.models.audit_log import AuditLog
-from app.models.claim import Claim
-from app.models.claim_receipt import ClaimReceipt
-from app.models.comment import Comment
-from app.models.draft import Draft
-from app.models.draft_version import DraftVersion
-from app.models.fact import Fact
-from app.models.finding import Finding
-from app.models.guideline_rule import GuidelineRule
-from app.models.organisation import Organisation
-from app.models.term import Term
-from app.models.user import User
+Import all models here so Alembic's env.py can discover every table's
+metadata via ``Base.metadata`` after a single ``import app.models``.
+"""
+from app.models._base import Base  # noqa: F401 – re-exported for convenience
+
+# Core tables (order matters for FK resolution in metadata)
+from app.models.organisation import Organisation  # noqa: F401
+from app.models.user import User  # noqa: F401
+
+# Source / knowledge-base tables
+from app.models.source import GuidelineRule, Fact, Term  # noqa: F401
+
+# Draft lifecycle
+from app.models.draft import Draft, DraftVersion  # noqa: F401
+
+# Review artefacts
+from app.models.finding import Finding  # noqa: F401
+from app.models.claim_receipt import Claim, ClaimReceipt  # noqa: F401
+
+# Workflow
+from app.models.comment import Comment  # noqa: F401
+from app.models.approval import Approval  # noqa: F401
+from app.models.audit_log import AuditLog  # noqa: F401
 
 __all__ = [
-    "Approval",
-    "AuditLog",
+    "Base",
+    "Organisation",
+    "User",
+    "GuidelineRule",
+    "Fact",
+    "Term",
+    "Draft",
+    "DraftVersion",
+    "Finding",
     "Claim",
     "ClaimReceipt",
     "Comment",
-    "Draft",
-    "DraftVersion",
-    "Fact",
-    "Finding",
-    "GuidelineRule",
-    "Organisation",
-    "Term",
-    "User",
+    "Approval",
+    "AuditLog",
 ]
-
