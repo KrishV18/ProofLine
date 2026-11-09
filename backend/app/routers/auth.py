@@ -1,12 +1,15 @@
-"""Authentication router."""
+"""Authentication router for ProofLine API."""
+from __future__ import annotations
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.roles import Role, get_current_user, get_or_create_default_org
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.audit import log_action
+from app.core.deps import get_current_user
+from app.core.security import create_access_token, verify_dummy_password, verify_password
 from app.db import get_db
 from app.models.user import User
 
@@ -18,72 +21,90 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class RegisterRequest(BaseModel):
+class UserProfile(BaseModel):
+    id: str
     email: str
-    password: str
-    role: str = "creator"
+    full_name: Optional[str] = None
+    role: str
+    organisation_id: str
 
 
-@router.post("/login")
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserProfile
+
+
+@router.post("/login", response_model=LoginResponse)
 async def login(req: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate a user and receive a JWT token."""
-    user = db.scalars(select(User).where(User.email == req.email.strip())).first()
-    if not user or not verify_password(req.password, user.hashed_password):
+    """Authenticate a user and receive a JWT access token.
+
+    Always returns 401 with 'Invalid email or password' on any authentication failure.
+    Runs a dummy constant-time verification when email is unknown to prevent timing attacks.
+    """
+    email = req.email.strip().lower()
+    user = db.scalars(select(User).where(User.email == email)).first()
+
+    if not user:
+        # Unknown email: perform dummy bcrypt computation for timing resistance
+        verify_dummy_password(req.password)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    token = create_access_token(
-        data={"sub": str(user.id), "email": user.email, "role": user.role}
-    )
-    return {"access_token": token, "token_type": "bearer"}
-
-
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    """Register a new user (convenience endpoint for local/demo setup)."""
-    existing = db.scalars(select(User).where(User.email == req.email.strip())).first()
-    if existing:
+    # Check password and active status
+    is_password_valid = verify_password(req.password, user.password_hash)
+    if not is_password_valid or not user.is_active:
+        # Log failure for known organisation, user_id=None
+        log_action(
+            db=db,
+            organisation_id=user.organisation_id,
+            user_id=None,
+            action="login_failed",
+            entity="user",
+            entity_id=user.id,
+            details={"email": email},
+        )
+        db.commit()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
         )
 
-    org = get_or_create_default_org(db)
-    user_role = req.role.lower()
-    if user_role not in [r.value for r in Role]:
-        user_role = Role.CREATOR.value
-
-    new_user = User(
-        organisation_id=org.id,
-        email=req.email.strip(),
-        hashed_password=hash_password(req.password),
-        role=user_role,
-        is_active=True,
+    # Success: log action and issue token
+    log_action(
+        db=db,
+        organisation_id=user.organisation_id,
+        user_id=user.id,
+        action="login_success",
+        entity="user",
+        entity_id=user.id,
+        details={"email": email},
     )
-    db.add(new_user)
     db.commit()
-    db.refresh(new_user)
 
-    token = create_access_token(
-        data={"sub": str(new_user.id), "email": new_user.email, "role": new_user.role}
-    )
+    token = create_access_token(user)
     return {
-        "id": str(new_user.id),
-        "email": new_user.email,
-        "role": new_user.role,
         "access_token": token,
         "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "organisation_id": str(user.organisation_id),
+        },
     }
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserProfile)
 async def get_me(current_user: User = Depends(get_current_user)):
-    """Return the current authenticated user."""
+    """Return the current authenticated user profile."""
     return {
         "id": str(current_user.id),
         "email": current_user.email,
+        "full_name": current_user.full_name,
         "role": current_user.role,
         "organisation_id": str(current_user.organisation_id),
     }
