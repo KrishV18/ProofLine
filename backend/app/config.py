@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     mock_ai: bool = True
 
+    # OpenAI Embeddings Configuration (RAG Subsystem)
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimensions: int = 1536
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
