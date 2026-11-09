@@ -24,7 +24,6 @@ from pydantic import BaseModel, Field
 
 from app.services.rag.ingestion import NormalizedKnowledgeRecord
 
-
 # ---------------------------------------------------------------------------
 # Data Models
 # ---------------------------------------------------------------------------

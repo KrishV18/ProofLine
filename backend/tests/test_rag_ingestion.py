@@ -21,18 +21,14 @@ import pytest
 from app.services.rag.ingestion import (
     KnowledgeLoadingError,
     NormalizedKnowledgeRecord,
-    ValidationErrorDetail,
     discover_knowledge_files,
     get_default_knowledge_dir,
     load_and_process_knowledge,
     load_knowledge_file,
     load_knowledge_files,
-    normalise_knowledge_record,
-    normalise_knowledge_records,
     validate_knowledge_record,
     validate_knowledge_records,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tests on Actual Knowledge Dataset

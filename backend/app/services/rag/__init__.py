@@ -19,12 +19,37 @@ Note:
     and Kalash (LLM Review Subsystem).
 """
 
+from app.services.rag.evaluation import (
+    DraftEvaluationSummary,
+    FindingEvaluationResult,
+    RetrievalEvaluationMetrics,
+    evaluate_retrieval_pipeline,
+    load_evaluation_dataset,
+    load_expected_findings,
+)
+from app.services.rag.retrieval import (
+    InMemoryVectorIndex,
+    RetrievedEvidence,
+    compute_cosine_similarity,
+    retrieve_relevant_context,
+)
+
 __all__ = [
-    "document_parser",
+    "DraftEvaluationSummary",
+    "FindingEvaluationResult",
+    "InMemoryVectorIndex",
+    "RetrievalEvaluationMetrics",
+    "RetrievedEvidence",
     "chunking",
+    "compute_cosine_similarity",
+    "document_parser",
     "embeddings",
-    "ingestion",
-    "retrieval",
+    "evaluate_retrieval_pipeline",
     "evaluation",
+    "ingestion",
+    "load_evaluation_dataset",
+    "load_expected_findings",
+    "retrieval",
+    "retrieve_relevant_context",
 ]
 

@@ -13,13 +13,10 @@ Verifies:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from app.services.rag.chunking import (
     DocumentChunk,
-    chunk_document,
     chunk_document_file,
     chunk_markdown,
     chunk_normalized_record,
@@ -27,7 +24,6 @@ from app.services.rag.chunking import (
     split_text_with_overlap,
 )
 from app.services.rag.ingestion import NormalizedKnowledgeRecord, load_and_process_knowledge
-
 
 # ---------------------------------------------------------------------------
 # Low-level Text Splitting Tests
