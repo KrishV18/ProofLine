@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -9,21 +10,35 @@ from pathlib import Path
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from sqlalchemy import select
-from app.db import SessionLocal
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from app.config import settings
 from app.models.organisation import Organisation
 from app.models.user import User
 from app.core.security import hash_password
 
 
-def create_user(org_name: str, email: str, password: str, role: str = "creator", name: str | None = None) -> None:
+def get_db_session(database_url: str | None = None):
+    url = database_url or os.environ.get("DATABASE_URL") or settings.database_url
+    engine = create_engine(url, echo=False)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+
+def create_user(
+    org_name: str,
+    email: str,
+    password: str,
+    role: str = "creator",
+    name: str | None = None,
+    database_url: str | None = None,
+) -> None:
     norm_email = email.strip().lower()
     norm_role = role.strip().lower()
 
     if norm_role not in ("creator", "reviewer", "admin"):
         raise ValueError(f"Invalid role '{role}'. Must be one of: creator, reviewer, admin")
 
-    with SessionLocal() as db:
+    with get_db_session(database_url) as db:
         # Find or create organisation
         org = db.scalars(select(Organisation).where(Organisation.name == org_name.strip())).first()
         if not org:
@@ -68,6 +83,7 @@ def main() -> None:
     parser.add_argument("--password", required=True, help="User plain-text password")
     parser.add_argument("--role", default="creator", choices=["creator", "reviewer", "admin"], help="User role (default: creator)")
     parser.add_argument("--name", default=None, help="User full name (optional)")
+    parser.add_argument("--database-url", default=None, help="Optional database URL override")
 
     args = parser.parse_args()
     create_user(
@@ -76,6 +92,7 @@ def main() -> None:
         password=args.password,
         role=args.role,
         name=args.name,
+        database_url=args.database_url,
     )
 
 

@@ -96,3 +96,4 @@ def require_role(*roles: str):
 def get_current_org_id(user: User = Depends(get_current_user)) -> uuid.UUID:
     """Return the current user's organisation_id."""
     return user.organisation_id
+

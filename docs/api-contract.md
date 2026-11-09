@@ -4,13 +4,42 @@ Base URL: `http://localhost:8000`
 
 ---
 
+## Role-Based Permission Matrix
+
+Every endpoint enforces role-based access control according to the table below. Access is evaluated before route execution:
+- Unauthenticated requests to protected endpoints return `401 Unauthorized` (`{"detail": "Not authenticated"}`).
+- Authenticated requests with a disallowed role return `403 Forbidden` (`{"detail": "Not allowed for your role"}`).
+- Allowed requests proceed to the handler (returning `200` for implemented endpoints or `501 Not Implemented` for stubs).
+
+| Endpoint | Method | Allowed Roles | Description |
+|---|---|---|---|
+| `/auth/login` | POST | Public | User authentication and JWT issuance |
+| `/auth/me` | GET | Any logged-in user (`creator`, `reviewer`, `admin`) | Current user profile |
+| `/health` | GET | Public | Service health probe |
+| `/sources` | GET | `creator`, `reviewer`, `admin` | List guidelines, facts, and terminology |
+| `/sources/guidelines` | POST | `admin` | Upload or create guideline rule |
+| `/sources/facts` | POST | `admin` | Upload or create fact entry |
+| `/sources/terms` | POST | `admin` | Upload or create terminology entry |
+| `/drafts` | POST | `creator` | Create new draft document |
+| `/drafts/{id}/review` | POST | `creator` | Trigger automated review |
+| `/drafts/{id}/versions/{v}/findings` | GET | `creator`, `reviewer` | Retrieve findings for draft version |
+| `/findings/{id}` | PATCH | `creator` | Update finding status or dismissal |
+| `/drafts/{id}/request-review` | POST | `creator` | Request human review |
+| `/drafts/{id}/comments` | POST | `creator`, `reviewer` | Add comment on draft |
+| `/drafts/{id}/decision` | POST | `reviewer` | Record approval decision |
+| `/drafts/{id}/receipt` | GET | `creator`, `reviewer`, `admin` | View review receipt |
+| `/insights/rules` | GET | `reviewer`, `admin` | View rule performance analytics |
+| `/audit` | GET | `admin` | View audit trail entries |
+
+---
+
 ## Health Check
 
 ### `GET /health`
 
 Returns the service health status.
 
-- **Auth:** None
+- **Auth:** None (Public)
 - **Roles:** Any
 - **Request body:** None
 - **Response (200):**
@@ -24,19 +53,64 @@ Returns the service health status.
 
 ### `POST /auth/login`
 
-Authenticate a user and receive a JWT token.
+Authenticate a user with credentials and receive a signed JWT access token.
+Emails are automatically trimmed and lowercased. Unknown emails and incorrect passwords both return identical `401` responses with constant-time verification to prevent user enumeration or timing attacks.
 
-- **Auth:** None
-- **Roles:** Any
+- **Auth:** None (Public)
+- **Roles:** Public
 - **Request body:**
   ```json
-  { "email": "string", "password": "string" }
+  {
+    "email": "user@example.com",
+    "password": "string"
+  }
   ```
-- **Response (200):**
+- **Response (200 OK):**
   ```json
-  { "access_token": "string", "token_type": "bearer" }
+  {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "bearer",
+    "user": {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "email": "user@example.com",
+      "full_name": "Test User",
+      "role": "creator",
+      "organisation_id": "22222222-2222-2222-2222-222222222222"
+    }
+  }
   ```
-- **Status:** 501 Not Implemented
+- **Response (401 Unauthorized):**
+  ```json
+  {
+    "detail": "Invalid email or password"
+  }
+  ```
+- **Status:** Implemented
+
+### `GET /auth/me`
+
+Returns the currently authenticated user's profile. User details (including role and organisation) are loaded fresh from the database row on every request.
+
+- **Auth:** Bearer JWT
+- **Roles:** Any logged-in user (`creator`, `reviewer`, `admin`)
+- **Request body:** None
+- **Response (200 OK):**
+  ```json
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "email": "user@example.com",
+    "full_name": "Test User",
+    "role": "creator",
+    "organisation_id": "22222222-2222-2222-2222-222222222222"
+  }
+  ```
+- **Response (401 Unauthorized):**
+  ```json
+  {
+    "detail": "Not authenticated"
+  }
+  ```
+- **Status:** Implemented
 
 ---
 
@@ -47,7 +121,7 @@ Authenticate a user and receive a JWT token.
 Upload or create guideline rules for the organisation.
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin
+- **Roles:** `admin`
 - **Request body:**
   ```json
   { "rule_id": "string", "text": "string", "category": "string" }
@@ -63,7 +137,7 @@ Upload or create guideline rules for the organisation.
 Upload or create fact entries for the organisation.
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin
+- **Roles:** `admin`
 - **Request body:**
   ```json
   { "statement": "string", "value": "string", "owner": "string", "source": "string", "expires_on": "date | null" }
@@ -79,7 +153,7 @@ Upload or create fact entries for the organisation.
 Upload or create terminology entries for the organisation.
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin
+- **Roles:** `admin`
 - **Request body:**
   ```json
   { "term": "string", "preferred": "string", "banned": false, "notes": "string | null" }
@@ -95,7 +169,7 @@ Upload or create terminology entries for the organisation.
 List all sources (guidelines, facts, terminology) for the organisation.
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin, Reviewer
+- **Roles:** `creator`, `reviewer`, `admin`
 - **Request body:** None
 - **Response (200):**
   ```json
@@ -113,10 +187,10 @@ List all sources (guidelines, facts, terminology) for the organisation.
 
 ### `POST /drafts`
 
-Create a new draft.
+Create a new draft document.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Admin
+- **Roles:** `creator`
 - **Request body:**
   ```json
   { "content": "string", "channel": "string | null" }
@@ -132,7 +206,7 @@ Create a new draft.
 Trigger an automated review of the draft's latest version.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Admin
+- **Roles:** `creator`
 - **Request body:** None
 - **Response (202):**
   ```json
@@ -145,7 +219,7 @@ Trigger an automated review of the draft's latest version.
 Get all findings for a specific draft version.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Reviewer, Admin
+- **Roles:** `creator`, `reviewer`
 - **Request body:** None
 - **Response (200):**
   ```json
@@ -175,7 +249,7 @@ Get all findings for a specific draft version.
 Request a human review of the draft.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator
+- **Roles:** `creator`
 - **Request body:** None
 - **Response (202):**
   ```json
@@ -188,7 +262,7 @@ Request a human review of the draft.
 Add a comment to a draft, optionally anchored to a text range.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Reviewer, Admin
+- **Roles:** `creator`, `reviewer`
 - **Request body:**
   ```json
   { "text": "string", "range_start": "int | null", "range_end": "int | null" }
@@ -204,7 +278,7 @@ Add a comment to a draft, optionally anchored to a text range.
 Record an approval decision on a draft.
 
 - **Auth:** Bearer JWT
-- **Roles:** Reviewer, Admin
+- **Roles:** `reviewer`
 - **Request body:**
   ```json
   { "decision": "approved | rejected | needs_changes", "reason": "string | null" }
@@ -220,7 +294,7 @@ Record an approval decision on a draft.
 Get the review receipt for a draft.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Reviewer, Admin
+- **Roles:** `creator`, `reviewer`, `admin`
 - **Request body:** None
 - **Response (200):**
   ```json
@@ -237,7 +311,7 @@ Get the review receipt for a draft.
 Update the status or dismissal reason of a finding.
 
 - **Auth:** Bearer JWT
-- **Roles:** Creator, Reviewer, Admin
+- **Roles:** `creator`
 - **Request body:**
   ```json
   { "status": "open | accepted | edited | dismissed", "dismissal_reason": "string | null" }
@@ -257,7 +331,7 @@ Update the status or dismissal reason of a finding.
 Get rule performance analytics (most triggered rules, acceptance rates, etc.).
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin
+- **Roles:** `reviewer`, `admin`
 - **Request body:** None
 - **Response (200):**
   ```json
@@ -276,7 +350,7 @@ Get rule performance analytics (most triggered rules, acceptance rates, etc.).
 Get the audit log entries.
 
 - **Auth:** Bearer JWT
-- **Roles:** Admin
+- **Roles:** `admin`
 - **Request body:** None
 - **Response (200):**
   ```json
@@ -293,4 +367,3 @@ Get the audit log entries.
   ]
   ```
 - **Status:** 501 Not Implemented
-
