@@ -3,7 +3,7 @@
 import re
 from typing import List, Optional
 
-from app.models.guideline_rule import GuidelineRule
+from app.models.source import GuidelineRule
 from app.schemas.finding import FindingBase
 from app.services.review.llm import call_llm_json, is_llm_configured
 

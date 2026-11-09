@@ -40,9 +40,34 @@ from app.main import app
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def client():
-    """Create a FastAPI test client."""
-    return TestClient(app)
+def client(migrated_db):
+    """Create a FastAPI test client configured to use the proofline_test database."""
+    from sqlalchemy.orm import sessionmaker
+    from app.db import get_db
+
+    TestSession = sessionmaker(bind=migrated_db, expire_on_commit=False)
+
+    def _get_test_db():
+        session = TestSession()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = _get_test_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def db_session(migrated_db):
+    """Provide a database session against proofline_test for test setup/inspection."""
+    from sqlalchemy.orm import sessionmaker
+    TestSession = sessionmaker(bind=migrated_db, expire_on_commit=False)
+    session = TestSession()
+    yield session
+    session.close()
 
 
 # ---------------------------------------------------------------------------

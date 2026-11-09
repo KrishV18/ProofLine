@@ -4,7 +4,7 @@ from datetime import date
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.models.fact import Fact
+from app.models.source import Fact
 from app.schemas.claim import ClaimStatus
 from app.schemas.finding import FindingBase
 from app.services.review.llm import call_llm_json, is_llm_configured
