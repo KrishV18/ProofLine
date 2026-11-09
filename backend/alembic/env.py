@@ -11,11 +11,18 @@ from app.db import Base
 # Import all models so their metadata is registered
 import app.models  # noqa: F401
 
+import os
+
 # this is the Alembic Config object
 config = context.config
 
-# Override sqlalchemy.url from application settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# If TEST_DATABASE_URL is set (e.g. during test runs), use it;
+# otherwise default to application settings.database_url.
+test_db_url = os.environ.get("TEST_DATABASE_URL")
+if test_db_url:
+    config.set_main_option("sqlalchemy.url", test_db_url)
+elif not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:

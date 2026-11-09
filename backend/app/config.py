@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     cors_origins: Union[str, List[str]] = ["*"]
     mock_ai: bool = False
 
+    model_config = {
+    "env_file": ".env",
+    "env_file_encoding": "utf-8",
+    "extra": "ignore",
+}
     @field_validator("cors_origins", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:

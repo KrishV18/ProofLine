@@ -1,9 +1,15 @@
-"""ProofLine database engine, session factory and dependency."""
+"""ProofLine database engine, session factory and dependency.
+
+The SQLAlchemy ``Base`` lives in ``app.models._base`` and is re-exported
+here for backward compatibility with any code that imports ``from app.db import Base``.
+"""
+from __future__ import annotations
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
+from app.models._base import Base  # re-export for compatibility  # noqa: F401
 
 # Configure engine options based on dialect
 connect_args = {}
@@ -17,10 +23,6 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 def get_db():
