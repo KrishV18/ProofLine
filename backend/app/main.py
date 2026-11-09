@@ -1,25 +1,19 @@
 """ProofLine API – pre-publication brand-governance backend."""
+from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.db import SessionLocal, init_db
+from app.core.security import validate_jwt_secret
 from app.routers import audit, auth, drafts, findings, insights, sources
-from app.services.workflow.seed_service import seed_sample_data
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database and seed baseline data on startup."""
-    init_db()
-    try:
-        db = SessionLocal()
-        seed_sample_data(db)
-        db.close()
-    except Exception:
-        pass
+    """Lifespan event handler for ProofLine API."""
+    validate_jwt_secret()
     yield
 
 
