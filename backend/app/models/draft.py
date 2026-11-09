@@ -6,6 +6,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy import Enum as PgEnum, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import ForeignKey, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models._base import Base, DRAFT_STATUS_VALUES
