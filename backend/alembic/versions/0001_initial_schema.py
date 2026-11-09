@@ -8,14 +8,13 @@ Replaces the placeholder scaffold migration with the full production schema.
 
 Upgrade creates:
   - Extensions: vector, pgcrypto (for gen_random_uuid on PG < 13)
-  - 8 PostgreSQL native ENUM types
+  - 8 PostgreSQL native ENUM types (created first, used directly in table DDL)
   - 13 tables with named constraints and indexes
   - 3 trigger functions:
       trg_fn_immutable_row     — blocks UPDATE/DELETE/TRUNCATE on audit_log
                                  and claim_receipts
       trg_fn_immutable_content — blocks UPDATE of content/content_hash on
                                  draft_versions and blocks DELETE
-      trg_fn_no_active_dup     — handled by partial unique index (see below)
 
 Downgrade reverses everything in dependency order.
 """
@@ -34,7 +33,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 # ---------------------------------------------------------------------------
 
-# SQL for the three trigger functions --------------------------------------- #
+# SQL for trigger functions ------------------------------------------------- #
 
 _TRG_FN_IMMUTABLE_ROW = """
 CREATE OR REPLACE FUNCTION trg_fn_immutable_row()
@@ -72,13 +71,13 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
     # ------------------------------------------------------------------ #
-    # Trigger functions                                                    #
+    # Trigger functions (create before tables that use them)              #
     # ------------------------------------------------------------------ #
     op.execute(_TRG_FN_IMMUTABLE_ROW)
     op.execute(_TRG_FN_IMMUTABLE_CONTENT)
 
     # ------------------------------------------------------------------ #
-    # Enum types                                                           #
+    # Enum types (create before tables so columns can reference them)     #
     # ------------------------------------------------------------------ #
     op.execute("CREATE TYPE user_role AS ENUM ('creator', 'reviewer', 'admin')")
     op.execute("CREATE TYPE draft_status AS ENUM ('draft', 'in_review', 'changes_requested', 'approved')")
@@ -113,7 +112,9 @@ def upgrade() -> None:
         sa.Column("email", sa.Text, nullable=False),
         sa.Column("password_hash", sa.Text, nullable=False),
         sa.Column("full_name", sa.Text, nullable=True),
-        sa.Column("role", sa.Text, nullable=False, server_default="creator"),
+        sa.Column("role", sa.Enum("creator", "reviewer", "admin",
+                                name="user_role", create_type=False),
+                  nullable=False, server_default=sa.text("'creator'::user_role")),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
                   server_default=sa.text("now()")),
@@ -125,11 +126,6 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("email", name="uq_users_email"),
         sa.UniqueConstraint("id", "organisation_id", name="uq_users_id_org"),
-        sa.CheckConstraint("role::text = ANY(ARRAY['creator','reviewer','admin'])",
-                           name="ck_users_role"),
-    )
-    op.execute(
-        "ALTER TABLE users ALTER COLUMN role TYPE user_role USING role::user_role"
     )
     op.create_index("ix_users_organisation_id", "users", ["organisation_id"])
 
@@ -255,7 +251,9 @@ def upgrade() -> None:
         sa.Column("owner_id", UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.Text, nullable=True),
         sa.Column("channel", sa.Text, nullable=True),
-        sa.Column("status", sa.Text, nullable=False, server_default="draft"),
+        sa.Column("status", sa.Enum("draft", "in_review", "changes_requested", "approved",
+                                   name="draft_status", create_type=False),
+                  nullable=False, server_default=sa.text("'draft'::draft_status")),
         sa.Column("intent_lock", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("current_version_number", sa.Integer, nullable=False,
                   server_default=sa.text("1")),
@@ -272,13 +270,6 @@ def upgrade() -> None:
             name="fk_drafts_owner", ondelete="RESTRICT",
         ),
         sa.UniqueConstraint("id", "organisation_id", name="uq_drafts_id_org"),
-        sa.CheckConstraint(
-            "status::text = ANY(ARRAY['draft','in_review','changes_requested','approved'])",
-            name="ck_drafts_status",
-        ),
-    )
-    op.execute(
-        "ALTER TABLE drafts ALTER COLUMN status TYPE draft_status USING status::draft_status"
     )
     op.create_index("ix_drafts_organisation_id", "drafts", ["organisation_id"])
     op.create_index("ix_drafts_organisation_status", "drafts", ["organisation_id", "status"])
@@ -335,14 +326,22 @@ def upgrade() -> None:
         sa.Column("quoted_text", sa.Text, nullable=True),
         sa.Column("start_offset", sa.Integer, nullable=False),
         sa.Column("end_offset", sa.Integer, nullable=False),
-        sa.Column("severity", sa.Text, nullable=False),
+        sa.Column("severity", sa.Enum("blocker", "warning", "note",
+                                     name="finding_severity", create_type=False),
+                  nullable=False),
         sa.Column("reason", sa.Text, nullable=False),
-        sa.Column("source_type", sa.Text, nullable=True),
+        sa.Column("source_type", sa.Enum("guideline", "fact", "term",
+                                         name="source_type", create_type=False),
+                  nullable=True),
         sa.Column("source_ref", sa.Text, nullable=False),
         sa.Column("source_version", sa.Integer, nullable=True),
-        sa.Column("confidence", sa.Text, nullable=False),
+        sa.Column("confidence", sa.Enum("high", "medium", "low",
+                                        name="finding_confidence", create_type=False),
+                  nullable=False),
         sa.Column("suggestion", sa.Text, nullable=True),
-        sa.Column("status", sa.Text, nullable=False, server_default="open"),
+        sa.Column("status", sa.Enum("open", "accepted", "edited", "dismissed",
+                                    name="finding_status", create_type=False),
+                  nullable=False, server_default=sa.text("'open'::finding_status")),
         sa.Column("dismissal_reason", sa.Text, nullable=True),
         sa.Column("resolved_by", UUID(as_uuid=True), nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
@@ -368,33 +367,9 @@ def upgrade() -> None:
             name="ck_findings_offsets",
         ),
         sa.CheckConstraint(
-            "status <> 'dismissed' OR dismissal_reason IS NOT NULL",
+            "status::text <> 'dismissed' OR dismissal_reason IS NOT NULL",
             name="ck_findings_dismissed_reason",
         ),
-        sa.CheckConstraint(
-            "severity::text = ANY(ARRAY['blocker','warning','note'])",
-            name="ck_findings_severity",
-        ),
-        sa.CheckConstraint(
-            "confidence::text = ANY(ARRAY['high','medium','low'])",
-            name="ck_findings_confidence",
-        ),
-        sa.CheckConstraint(
-            "status::text = ANY(ARRAY['open','accepted','edited','dismissed'])",
-            name="ck_findings_status",
-        ),
-    )
-    op.execute(
-        "ALTER TABLE findings ALTER COLUMN severity TYPE finding_severity USING severity::finding_severity"
-    )
-    op.execute(
-        "ALTER TABLE findings ALTER COLUMN confidence TYPE finding_confidence USING confidence::finding_confidence"
-    )
-    op.execute(
-        "ALTER TABLE findings ALTER COLUMN status TYPE finding_status USING status::finding_status"
-    )
-    op.execute(
-        "ALTER TABLE findings ALTER COLUMN source_type TYPE source_type USING source_type::source_type"
     )
     op.create_index("ix_findings_version_id", "findings", ["version_id"])
     op.create_index("ix_findings_organisation_source_ref", "findings", ["organisation_id", "source_ref"])
@@ -411,7 +386,10 @@ def upgrade() -> None:
         sa.Column("version_id", UUID(as_uuid=True), nullable=False),
         sa.Column("claim_text", sa.Text, nullable=False),
         sa.Column("claim_type", sa.Text, nullable=True),
-        sa.Column("status", sa.Text, nullable=False),
+        sa.Column("status", sa.Enum("supported", "conflicts", "expired_evidence",
+                                   "unsupported", "needs_human",
+                                   name="claim_status", create_type=False),
+                  nullable=False),
         sa.Column("evidence_fact_key", sa.Text, nullable=True),
         sa.Column("evidence_version", sa.Integer, nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
@@ -426,13 +404,6 @@ def upgrade() -> None:
             name="fk_claims_version_org", ondelete="RESTRICT",
         ),
         sa.UniqueConstraint("id", "organisation_id", name="uq_claims_id_org"),
-        sa.CheckConstraint(
-            "status::text = ANY(ARRAY['supported','conflicts','expired_evidence','unsupported','needs_human'])",
-            name="ck_claims_status",
-        ),
-    )
-    op.execute(
-        "ALTER TABLE claims ALTER COLUMN status TYPE claim_status USING status::claim_status"
     )
     op.create_index("ix_claims_organisation_id", "claims", ["organisation_id"])
     op.create_index("ix_claims_version_id", "claims", ["version_id"])
@@ -486,7 +457,9 @@ def upgrade() -> None:
         sa.Column("draft_id", UUID(as_uuid=True), nullable=False),
         sa.Column("version_id", UUID(as_uuid=True), nullable=False),
         sa.Column("reviewer_id", UUID(as_uuid=True), nullable=False),
-        sa.Column("decision", sa.Text, nullable=False),
+        sa.Column("decision", sa.Enum("approved", "changes_requested",
+                                     name="decision_type", create_type=False),
+                  nullable=False),
         sa.Column("override_reason", sa.Text, nullable=True),
         sa.Column("note", sa.Text, nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
@@ -505,13 +478,6 @@ def upgrade() -> None:
             ["users.id", "users.organisation_id"],
             name="fk_approvals_reviewer_org", ondelete="RESTRICT",
         ),
-        sa.CheckConstraint(
-            "decision::text = ANY(ARRAY['approved','changes_requested'])",
-            name="ck_approvals_decision",
-        ),
-    )
-    op.execute(
-        "ALTER TABLE approvals ALTER COLUMN decision TYPE decision_type USING decision::decision_type"
     )
     op.create_index("ix_approvals_organisation_id", "approvals", ["organisation_id"])
     op.create_index("ix_approvals_draft_id", "approvals", ["draft_id"])
@@ -646,4 +612,3 @@ def downgrade() -> None:
     # Drop extensions
     op.execute("DROP EXTENSION IF EXISTS pgcrypto")
     op.execute("DROP EXTENSION IF EXISTS vector")
-
