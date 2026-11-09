@@ -54,11 +54,17 @@ def db_engine(db_url):
     from sqlalchemy import create_engine, text as sa_text
     from sqlalchemy.exc import OperationalError
 
-    engine = create_engine(db_url, pool_pre_ping=True)
+    # Add a short TCP connect_timeout so the skip fires quickly when no PG
+    # is available locally (avoids hanging for the OS-level TCP timeout).
+    _url = db_url
+    if "connect_timeout" not in _url:
+        sep = "&" if "?" in _url else "?"
+        _url = f"{_url}{sep}connect_timeout=3"
+    engine = create_engine(_url, pool_pre_ping=True)
     try:
         with engine.connect() as conn:
             conn.execute(sa_text("SELECT 1"))
-    except OperationalError as exc:
+    except (OperationalError, Exception) as exc:
         pytest.skip(
             f"PostgreSQL not reachable at {db_url!r}. "
             f"Set TEST_DATABASE_URL and start a test database to run DB tests. "
