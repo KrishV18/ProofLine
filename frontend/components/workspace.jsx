@@ -72,6 +72,7 @@ export default function Workspace() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
   const [backendLive, setBackendLive] = useState(false);
+  const [aiReviewing, setAiReviewing] = useState(false);
 
   useEffect(() => {
     checkBackendHealth().then(setBackendLive);
@@ -132,6 +133,7 @@ export default function Workspace() {
   }
   async function enrichWithLiveAI(savedDraft) {
     if (!backendLive) return;
+    setAiReviewing(true);
     try {
       const remote = await runBackendReview(savedDraft);
       setData((prev) => {
@@ -191,6 +193,8 @@ export default function Workspace() {
       }
     } catch (err) {
       console.warn("Live backend review skipped:", err);
+    } finally {
+      setAiReviewing(false);
     }
   }
   function commit(next, message) {
@@ -388,6 +392,7 @@ export default function Workspace() {
           draft={draft}
           newDraft={id === "new" && role === "writer"}
           role={role}
+          aiReviewing={aiReviewing}
           onBack={() => go(activeNav)}
           events={data.events.filter((event) => event.draftId === id)}
           onApprove={approve}

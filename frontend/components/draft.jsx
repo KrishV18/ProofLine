@@ -387,6 +387,7 @@ function FindingPanel({
   onSource,
   onAction,
   editable,
+  aiReviewing,
 }) {
   return (
     <section className="card section-card">
@@ -405,6 +406,16 @@ function FindingPanel({
           detail="Run checks against the current brand library."
           icon={CircleAlert}
         />
+      ) : aiReviewing ? (
+        <div className="empty">
+          <span className="empty-icon">
+            <svg className="spin" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          </span>
+          <h3>AI review in progress…</h3>
+          <p>Groq is checking your draft against brand guidelines. This may take up to 60 seconds if the server is waking up.</p>
+        </div>
       ) : !selected ? (
         <Empty
           title="No findings"
@@ -551,6 +562,7 @@ export function DraftScreen({
   onApprove,
   onPublish,
   events,
+  aiReviewing,
 }) {
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState("Findings");
@@ -797,6 +809,7 @@ export function DraftScreen({
             onSource={(source) => show("source", source)}
             onAction={handleAction}
             editable={editable && draft.checked}
+            aiReviewing={aiReviewing}
           />
         )}
         {active === "Claim Ledger" && (
