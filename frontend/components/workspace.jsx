@@ -443,12 +443,29 @@ export default function Workspace() {
               draft.text.slice(0, finding.start) +
               replacement +
               draft.text.slice(finding.start + finding.original.length);
-            saveDraft(
-              runChecks({ ...draft, text }, "Edited and re-checked"),
+
+            // Run local checks on the new text
+            const checked = runChecks({ ...draft, text }, "Edited and re-checked");
+
+            // Carry forward all OTHER backend findings whose flagged text
+            // still exists in the updated content — only drop the one just fixed
+            const survivingFindings = draft.findings.filter(
+              (f) => f.id !== finding.id && text.includes(f.original)
+            );
+            const localIds = new Set(checked.findings.map((f) => f.id));
+            const mergedFindings = [
+              ...checked.findings,
+              ...survivingFindings.filter((f) => !localIds.has(f.id)),
+            ];
+
+            const saved = saveDraft(
+              { ...checked, findings: mergedFindings },
               "Applied correction",
               "Correction applied and draft re-checked",
               { sourceId: finding.source.id, sources: [finding.source] }
             );
+            // Re-run backend check on the corrected text in background
+            enrichWithLiveAI(saved);
           }}
           onDismiss={(finding, note) =>
             saveDraft(
