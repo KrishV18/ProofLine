@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import func
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import text
 
-from app.models._base import Base
+from app.models._base import Base, UUID_TYPE, utc_now
 
 
 class Organisation(Base):
@@ -17,18 +17,19 @@ class Organisation(Base):
     __tablename__ = "organisations"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
     name: Mapped[str] = mapped_column(
         sa.String(255),
         nullable=False,
     )
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
 
     __table_args__ = (

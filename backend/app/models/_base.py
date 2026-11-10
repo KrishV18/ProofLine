@@ -6,10 +6,11 @@ consistent column conventions across every table.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
-from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Enum as PgEnum, JSON, String, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # ---------------------------------------------------------------------------
@@ -27,6 +28,23 @@ CLAIM_STATUS_VALUES    = ("supported", "conflicts", "expired_evidence", "unsuppo
 SOURCE_TYPE_VALUES     = ("guideline", "fact", "term")
 DECISION_TYPE_VALUES   = ("approved", "changes_requested")
 
+# Cross-dialect column types (PostgreSQL native in prod, portable on SQLite)
+UUID_TYPE = Uuid(as_uuid=True)
+JSONB_TYPE = JSON().with_variant(JSONB(), "postgresql")
+
+
+def enum_type(values: tuple[str, ...], name: str) -> sa.types.TypeEngine:
+    """Return a VARCHAR column on SQLite and native PostgreSQL ENUM on Postgres."""
+    return String(50).with_variant(
+        PgEnum(*values, name=name, create_type=False),
+        "postgresql",
+    )
+
+
+def utc_now() -> datetime:
+    """Return current UTC timestamp."""
+    return datetime.now(timezone.utc)
+
 
 # ---------------------------------------------------------------------------
 # Declarative base
@@ -42,19 +60,19 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------------------------
 
 def _uuid_pk() -> Mapped[uuid.UUID]:
-    """Standard UUID primary key with server-side gen_random_uuid()."""
+    """Standard UUID primary key compatible with PostgreSQL and SQLite."""
     return mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
 
 
 def _timestamptz_now(nullable: bool = False) -> sa.Column:
-    """TIMESTAMPTZ column defaulting to now() on the server."""
+    """TIMESTAMPTZ column defaulting to current timestamp."""
     return sa.Column(
         sa.TIMESTAMP(timezone=True),
         nullable=nullable,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
-

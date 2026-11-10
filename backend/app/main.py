@@ -7,13 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.core.security import validate_jwt_secret
+from app.db import SessionLocal, init_db
 from app.routers import audit, auth, drafts, findings, insights, sources
+from app.services.workflow.seed_service import seed_sample_data
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for ProofLine API."""
     validate_jwt_secret()
+    if settings.database_url.startswith("sqlite"):
+        init_db()
+        try:
+            db = SessionLocal()
+            seed_sample_data(db)
+            db.close()
+        except Exception:
+            pass
     yield
 
 

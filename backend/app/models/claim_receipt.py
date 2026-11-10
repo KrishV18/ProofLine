@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Enum as PgEnum, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy import ForeignKey, JSON, func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models._base import Base, CLAIM_STATUS_VALUES
+from app.models._base import Base, CLAIM_STATUS_VALUES, JSONB_TYPE, UUID_TYPE, enum_type, utc_now
 
 
 class Claim(Base):
@@ -18,28 +17,29 @@ class Claim(Base):
     __tablename__ = "claims"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
     organisation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         sa.ForeignKey("organisations.id", ondelete="RESTRICT", name="fk_claims_organisation"),
         nullable=False,
     )
-    version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    version_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, nullable=False)
     claim_text: Mapped[str] = mapped_column(sa.Text, nullable=False)
     claim_type: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(
-        PgEnum(*CLAIM_STATUS_VALUES, name="claim_status", create_type=False),
+        enum_type(CLAIM_STATUS_VALUES, "claim_status"),
         nullable=False,
     )
     evidence_fact_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     evidence_version: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
 
     __table_args__ = (
@@ -59,44 +59,57 @@ class ClaimReceipt(Base):
     """Immutable record created when a draft version is approved.
 
     One receipt per approved version (UNIQUE version_id).
-    Rows are blocked from UPDATE and DELETE by a DB trigger.
     """
 
     __tablename__ = "claim_receipts"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
     organisation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         sa.ForeignKey("organisations.id", ondelete="RESTRICT", name="fk_claim_receipts_organisation"),
         nullable=False,
     )
-    draft_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, nullable=False)
+    version_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, nullable=False)
     approved_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         sa.ForeignKey("users.id", ondelete="RESTRICT", name="fk_claim_receipts_approved_by"),
         nullable=False,
     )
-    approved_at: Mapped[sa.DateTime] = mapped_column(
+    approved_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
     content_hash: Mapped[str] = mapped_column(sa.CHAR(64), nullable=False)
-    claims_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    guideline_versions: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    override_reasons: Mapped[list] = mapped_column(
-        JSONB,
+    claims_snapshot: Mapped[dict] = mapped_column(
+        JSONB_TYPE,
         nullable=False,
-        server_default=text("'[]'::jsonb"),
+        default=dict,
+        server_default=text("'{}'"),
     )
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    guideline_versions: Mapped[dict] = mapped_column(
+        JSONB_TYPE,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
+    override_reasons: Mapped[list] = mapped_column(
+        JSONB_TYPE,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
 
     __table_args__ = (
@@ -106,7 +119,6 @@ class ClaimReceipt(Base):
             name="fk_claim_receipts_version_org",
             ondelete="RESTRICT",
         ),
-        # One receipt per approved version.
         sa.UniqueConstraint("version_id", name="uq_claim_receipts_version_id"),
         sa.Index("ix_claim_receipts_organisation_id", "organisation_id"),
     )

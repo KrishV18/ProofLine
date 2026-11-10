@@ -56,6 +56,7 @@ def execute_full_review(
     for r in rules:
         valid_source_refs.add(r.rule_id)
     for f in facts:
+        valid_source_refs.add(f.fact_key)
         valid_source_refs.add(f.statement)
         if f.source:
             valid_source_refs.add(f.source)
@@ -106,21 +107,35 @@ def execute_full_review(
     blockers_count = 0
     warnings_count = 0
 
+    fact_refs = {f.fact_key for f in facts} | {f.statement for f in facts}
+    term_refs = {f"TERM-{t.term.upper()}" for t in terms}
+
     for vf in validated_findings:
         if vf.severity == "blocker":
             blockers_count += 1
         elif vf.severity == "warning":
             warnings_count += 1
 
+        start_off = max(0, int(vf.start_offset))
+        end_off = max(start_off + 1, int(vf.end_offset))
+
+        if vf.source_ref in term_refs or vf.source_ref.startswith("TERM-"):
+            s_type = "term"
+        elif vf.source_ref in fact_refs or vf.source_ref == "CLAIM-UNSUPPORTED":
+            s_type = "fact"
+        else:
+            s_type = "guideline"
+
         finding_row = Finding(
             organisation_id=org_id,
             draft_id=draft.id,
             version_id=version.id,
             quoted_text=vf.quoted_text,
-            start_offset=vf.start_offset,
-            end_offset=vf.end_offset,
+            start_offset=start_off,
+            end_offset=end_off,
             severity=vf.severity,
             reason=vf.reason,
+            source_type=s_type,
             source_ref=vf.source_ref,
             source_version=vf.source_version,
             confidence=vf.confidence,
@@ -131,12 +146,12 @@ def execute_full_review(
         db.add(finding_row)
         persisted_findings.append(finding_row)
 
-    # Commit findings, claims, and version review state
-    db.commit()
+    db.flush()
 
-    # Audit log entry
+    # Audit log entry (flushed in same transaction before commit)
     log_action(
         db=db,
+        organisation_id=org_id,
         user_id=user_id,
         action="review_completed",
         entity="draft_version",
@@ -149,8 +164,10 @@ def execute_full_review(
             "warnings_count": warnings_count,
             "claims_count": len(persisted_claims),
         },
-        organisation_id=org_id,
     )
+
+    # Commit findings, claims, and audit entry together
+    db.commit()
 
     return {
         "draft_id": str(draft.id),

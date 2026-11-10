@@ -22,6 +22,13 @@ import {
   stamp,
   versionOf,
 } from "../lib/workflow.mjs";
+import {
+  checkBackendHealth,
+  clearBackendToken,
+  loginBackendRole,
+  runBackendReview,
+  syncBackendDecision,
+} from "../lib/backend";
 import Login from "./login";
 import { Dashboard, DraftList } from "./dashboard";
 import { DraftScreen } from "./draft";
@@ -64,8 +71,10 @@ export default function Workspace() {
   const [notice, setNotice] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
+  const [backendLive, setBackendLive] = useState(false);
 
   useEffect(() => {
+    checkBackendHealth().then(setBackendLive);
     try {
       const saved = localStorage.getItem(workspaceKey);
       setData(saved ? JSON.parse(saved) : seedWorkspace());
@@ -106,13 +115,79 @@ export default function Workspace() {
   }
   function changeRole(value) {
     try {
-      if (value) sessionStorage.setItem(roleKey, value);
-      else sessionStorage.removeItem(roleKey);
+      if (value) {
+        sessionStorage.setItem(roleKey, value);
+        loginBackendRole(value).then((res) => {
+          if (res) setBackendLive(true);
+        });
+      } else {
+        sessionStorage.removeItem(roleKey);
+        clearBackendToken();
+      }
     } catch {
       setStorageWarning(true);
     }
     setRole(value);
     go("home");
+  }
+  async function enrichWithLiveAI(savedDraft) {
+    if (!backendLive) return;
+    try {
+      const remote = await runBackendReview(savedDraft);
+      setData((prev) => {
+        if (!prev) return prev;
+        const nextDrafts = prev.drafts.map((item) => {
+          if (item.id !== savedDraft.id) return item;
+          const existingKeys = new Set(
+            item.findings.map((f) => `${f.original.toLowerCase()}::${f.source?.id}`)
+          );
+          const extraFindings = remote.findings.filter(
+            (f) =>
+              f.original &&
+              !existingKeys.has(`${f.original.toLowerCase()}::${f.source?.id}`)
+          );
+          const mergedFindings = [...item.findings, ...extraFindings];
+
+          const existingClaimTexts = new Set(
+            item.claims.map((c) => c.text.toLowerCase())
+          );
+          const extraClaims = remote.claims.filter(
+            (c) => c.text && !existingClaimTexts.has(c.text.toLowerCase())
+          );
+          const mergedClaims = [...item.claims, ...extraClaims];
+
+          const hasBlocker = mergedFindings.some(
+            (f) => f.severity === "Blocker" && f.decision === "open"
+          );
+          const hasWarning = mergedFindings.some(
+            (f) => f.severity === "Warning" && f.decision === "open"
+          );
+          const nextRisk = hasBlocker
+            ? "High"
+            : hasWarning && item.risk === "Low"
+            ? "Medium"
+            : item.risk;
+
+          return {
+            ...item,
+            backendId: remote.backendId,
+            findings: mergedFindings,
+            claims: mergedClaims,
+            risk: nextRisk,
+          };
+        });
+        const nextState = { ...prev, drafts: nextDrafts };
+        try {
+          localStorage.setItem(workspaceKey, JSON.stringify(nextState));
+        } catch {}
+        return nextState;
+      });
+      if (remote.findings.length > 0) {
+        setNotice(`Groq AI backend check synced (${remote.findings.length} AI finding(s))`);
+      }
+    } catch (err) {
+      console.warn("Live backend review skipped:", err);
+    }
   }
   function commit(next, message) {
     setData(next);
@@ -272,6 +347,7 @@ export default function Workspace() {
         overrideSources: blockers(draft).map((item) => item.source.id),
       }
     );
+    syncBackendDecision(draft.backendId, "approved", override || draft.legal);
   }
 
   if (!data)
@@ -335,14 +411,16 @@ export default function Workspace() {
               run ? "Content checks complete" : "Draft saved",
               run ? { sources: evidenceOf(next) } : undefined
             );
+            if (run) enrichWithLiveAI(saved);
             if (!draft) openDraft(saved.id);
             return saved;
           }}
           onRecheck={(target) => {
             const checked = runChecks(target);
-            saveDraft(checked, "Ran checks", "Content checks complete", {
+            const saved = saveDraft(checked, "Ran checks", "Content checks complete", {
               sources: evidenceOf(checked),
             });
+            enrichWithLiveAI(saved);
           }}
           onApply={(finding, replacement) => {
             if (
@@ -549,7 +627,7 @@ export default function Workspace() {
             </span>
             <span>
               <strong>{roles[role]}</strong>
-              <small>Demo session</small>
+              <small>{backendLive ? "Connected · Groq API" : "Local demo mode"}</small>
             </span>
           </div>
           <button

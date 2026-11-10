@@ -103,12 +103,29 @@ def db_url() -> str:
 def db_engine(db_url: str):
     """Session-scoped SQLAlchemy engine.
 
-    FAILS (not skips) the session when PostgreSQL is not reachable, printing
-    a clear message telling the developer to run `docker compose up -d db`.
+    Supports sqlite:// URLs for local no-Docker testing, or connects to PostgreSQL
+    (failing fast if PG is unreachable).
     """
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, event
     from sqlalchemy import text as sa_text
     from sqlalchemy.exc import OperationalError
+
+    if db_url.startswith("sqlite"):
+        engine = create_engine(db_url, connect_args={"check_same_thread": False})
+
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            from datetime import datetime, timezone
+            dbapi_connection.create_function(
+                "now", 0, lambda: datetime.now(timezone.utc).isoformat()
+            )
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        yield engine
+        engine.dispose()
+        return
 
     # Short TCP connect timeout so the error fires quickly instead of waiting
     # for the OS-level TCP timeout (~2 minutes).
@@ -145,11 +162,17 @@ def alembic_cfg(db_url: str):
 
 @pytest.fixture(scope="session")
 def migrated_db(db_engine, alembic_cfg):
-    """Apply `alembic upgrade head` once for the session.
+    """Apply `alembic upgrade head` once for PG, or create_all for SQLite."""
+    if db_engine.dialect.name == "sqlite":
+        import app.models  # noqa: F401
+        from app.models._base import Base
 
-    At session teardown, runs `alembic downgrade base` so the test database is
-    left clean for the next run.
-    """
+        Base.metadata.drop_all(bind=db_engine)
+        Base.metadata.create_all(bind=db_engine)
+        yield db_engine
+        Base.metadata.drop_all(bind=db_engine)
+        return
+
     from alembic import command
 
     # Always start from a clean state (handles leftover state from a crashed run)
