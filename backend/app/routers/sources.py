@@ -126,6 +126,7 @@ async def create_guideline(
     next_version = (latest.version + 1) if latest else 1
     if latest and latest.is_active:
         latest.is_active = False
+        db.flush()
 
     rule = GuidelineRule(
         organisation_id=org_id,
@@ -180,6 +181,7 @@ async def create_fact(
     next_version = (latest.version + 1) if latest else 1
     if latest and latest.is_active:
         latest.is_active = False
+        db.flush()
 
     fact = Fact(
         organisation_id=org_id,
@@ -237,6 +239,7 @@ async def create_term(
     next_version = (latest.version + 1) if latest else 1
     if latest and latest.is_active:
         latest.is_active = False
+        db.flush()
 
     term_row = Term(
         organisation_id=org_id,
