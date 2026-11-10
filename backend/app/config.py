@@ -6,6 +6,16 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
+def normalize_postgres_url(url: str) -> str:
+    """Ensure PostgreSQL connection strings use the installed psycopg v3 driver."""
+    raw = url.strip()
+    if raw.startswith("postgres://"):
+        return "postgresql+psycopg://" + raw[len("postgres://") :]
+    if raw.startswith("postgresql://"):
+        return "postgresql+psycopg://" + raw[len("postgresql://") :]
+    return raw
+
+
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./proofline.db"
     test_database_url: str = "postgresql+psycopg://proofline:proofline@localhost:5432/proofline_test"
@@ -26,6 +36,13 @@ class Settings(BaseSettings):
     openai_embedding_dimensions: int = 1536
 
     cors_origins: Union[str, List[str]] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("database_url", "test_database_url", mode="before")
+    @classmethod
+    def coerce_postgres_driver(cls, v: str) -> str:
+        if isinstance(v, str):
+            return normalize_postgres_url(v)
+        return v
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.config import settings
+from app.config import normalize_postgres_url, settings
 from app.db import Base
 
 # Import all models so their metadata is registered
@@ -16,13 +16,11 @@ import os
 # this is the Alembic Config object
 config = context.config
 
-# If TEST_DATABASE_URL is set (e.g. during test runs), use it;
-# otherwise default to application settings.database_url.
+# Prefer TEST_DATABASE_URL during test runs; otherwise use settings.database_url
+# (which loads DATABASE_URL / .env and normalizes postgres:// -> postgresql+psycopg://).
 test_db_url = os.environ.get("TEST_DATABASE_URL")
-if test_db_url:
-    config.set_main_option("sqlalchemy.url", test_db_url)
-elif not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", settings.database_url)
+resolved_url = normalize_postgres_url(test_db_url) if test_db_url else settings.database_url
+config.set_main_option("sqlalchemy.url", resolved_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:

@@ -15,10 +15,18 @@ connect_args = {}
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
 
+engine_kwargs = {
+    "connect_args": connect_args,
+    "echo": False,
+}
+if not settings.database_url.startswith("sqlite"):
+    # Revalidate idle connections (important for serverless Postgres like Neon).
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 300
+
 engine = create_engine(
     settings.database_url,
-    connect_args=connect_args,
-    echo=False,
+    **engine_kwargs,
 )
 
 if settings.database_url.startswith("sqlite"):
