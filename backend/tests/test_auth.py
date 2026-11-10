@@ -166,9 +166,9 @@ def test_role_from_database_not_token(client, db_session):
     assert res_me.status_code == 200
     assert res_me.json()["role"] == "admin"
 
-    # /audit requires 'admin'; with updated DB role it returns 501 (not 403)
+    # /audit requires 'admin'; with updated DB role it returns 200 (not 403)
     res_audit = client.get("/audit", headers={"Authorization": f"Bearer {token}"})
-    assert res_audit.status_code == 501
+    assert res_audit.status_code == 200
 
 
 def test_login_audit_log(client, db_session):
@@ -238,20 +238,20 @@ MATRIX_ENDPOINTS = [
     ("GET", "/health", {"creator", "reviewer", "admin", "unauthenticated"}, 200),
     ("POST", "/auth/login", {"creator", "reviewer", "admin", "unauthenticated"}, 200),
     ("GET", "/auth/me", {"creator", "reviewer", "admin"}, 200),
-    ("GET", "/sources", {"creator", "reviewer", "admin"}, 501),
-    ("POST", "/sources/guidelines", {"admin"}, 501),
-    ("POST", "/sources/facts", {"admin"}, 501),
-    ("POST", "/sources/terms", {"admin"}, 501),
-    ("POST", "/drafts", {"creator"}, 501),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/review", {"creator"}, 501),
-    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/versions/1/findings", {"creator", "reviewer"}, 501),
-    ("PATCH", "/findings/11111111-1111-1111-1111-111111111111", {"creator"}, 501),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/request-review", {"creator"}, 501),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/comments", {"creator", "reviewer"}, 501),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/decision", {"reviewer"}, 501),
-    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/receipt", {"creator", "reviewer", "admin"}, 501),
-    ("GET", "/insights/rules", {"reviewer", "admin"}, 501),
-    ("GET", "/audit", {"admin"}, 501),
+    ("GET", "/sources", {"creator", "reviewer", "admin"}, 200),
+    ("POST", "/sources/guidelines", {"admin"}, 422),
+    ("POST", "/sources/facts", {"admin"}, 422),
+    ("POST", "/sources/terms", {"admin"}, 422),
+    ("POST", "/drafts", {"creator"}, 422),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/review", {"creator"}, 404),
+    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/versions/1/findings", {"creator", "reviewer"}, 404),
+    ("PATCH", "/findings/11111111-1111-1111-1111-111111111111", {"creator"}, 404),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/request-review", {"creator"}, 404),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/comments", {"creator", "reviewer"}, 422),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/decision", {"reviewer"}, 422),
+    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/receipt", {"creator", "reviewer", "admin"}, 404),
+    ("GET", "/insights/rules", {"reviewer", "admin"}, 200),
+    ("GET", "/audit", {"admin"}, 200),
 ]
 
 ROLES = ["creator", "reviewer", "admin"]

@@ -5,13 +5,12 @@ here for backward compatibility with any code that imports ``from app.db import 
 """
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
 from app.models._base import Base  # re-export for compatibility  # noqa: F401
 
-# Configure engine options based on dialect
 connect_args = {}
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
@@ -21,6 +20,15 @@ engine = create_engine(
     connect_args=connect_args,
     echo=False,
 )
+
+if settings.database_url.startswith("sqlite"):
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Enum as PgEnum, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models._base import Base, USER_ROLE_VALUES
+from app.models._base import Base, USER_ROLE_VALUES, UUID_TYPE, enum_type, utc_now
 
 
 class User(Base):
@@ -17,15 +17,14 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
     organisation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         sa.ForeignKey("organisations.id", ondelete="RESTRICT", name="fk_users_organisation"),
         nullable=False,
-        index=True,
     )
     email: Mapped[str] = mapped_column(
         sa.Text,
@@ -35,24 +34,28 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
     full_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     role: Mapped[str] = mapped_column(
-        PgEnum(*USER_ROLE_VALUES, name="user_role", create_type=False),
+        enum_type(USER_ROLE_VALUES, "user_role"),
         nullable=False,
+        default="creator",
         server_default="creator",
     )
     is_active: Mapped[bool] = mapped_column(
         sa.Boolean,
         nullable=False,
+        default=True,
         server_default=text("true"),
     )
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
-    updated_at: Mapped[sa.DateTime] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
 
     __table_args__ = (

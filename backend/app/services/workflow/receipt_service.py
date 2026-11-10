@@ -1,15 +1,16 @@
-"""Claim Receipt Service: Generates cryptographic/immutable evidence receipts upon approval."""
+"""Claim Receipt Service: Generates immutable evidence receipts upon approval."""
+from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import List
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.claim import Claim
-from app.models.claim_receipt import ClaimReceipt
-from app.models.draft import Draft
-from app.models.draft_version import DraftVersion
+from app.models.claim_receipt import Claim, ClaimReceipt
+from app.models.draft import Draft, DraftVersion
+from app.models.finding import Finding
+from app.models.source import GuidelineRule
 from app.models.user import User
 
 
@@ -19,35 +20,65 @@ def generate_claim_receipts(
     version: DraftVersion,
     approved_by: User,
 ) -> List[ClaimReceipt]:
-    """Generate and persist an immutable Claim Receipt for every claim in the approved draft."""
+    """Generate and persist the immutable Claim Receipt for an approved draft version."""
+    existing = db.scalars(
+        select(ClaimReceipt).where(ClaimReceipt.version_id == version.id)
+    ).first()
+    if existing:
+        return [existing]
+
     claims = db.scalars(select(Claim).where(Claim.version_id == version.id)).all()
-
-    receipts: List[ClaimReceipt] = []
-    approval_timestamp = datetime.now(timezone.utc).isoformat()
-
-    for claim in claims:
-        receipt_payload: Dict[str, Any] = {
-            "receipt_id": str(uuid.uuid4()),
-            "draft_id": str(draft.id),
-            "version_number": version.version_number,
-            "claim_quoted_text": claim.quoted_text,
-            "claim_status": claim.status,
-            "source_ref": claim.source_ref,
-            "approved_by_user_id": str(approved_by.id),
-            "approved_by_email": approved_by.email,
-            "approved_by_role": approved_by.role,
-            "approval_timestamp": approval_timestamp,
-            "integrity_motto": "Every claim linked to its proof. No source, no flag.",
-        }
-
-        receipt = ClaimReceipt(
-            organisation_id=draft.organisation_id,
-            claim_id=claim.id,
-            receipt_data=receipt_payload,
+    findings = db.scalars(select(Finding).where(Finding.version_id == version.id)).all()
+    rules = db.scalars(
+        select(GuidelineRule).where(
+            GuidelineRule.organisation_id == draft.organisation_id,
+            GuidelineRule.is_active == True,  # noqa: E712
         )
-        db.add(receipt)
-        receipts.append(receipt)
+    ).all()
 
-    db.commit()
-    return receipts
+    approval_ts = datetime.now(timezone.utc)
 
+    claims_snapshot = {
+        "draft_id": str(draft.id),
+        "version_number": version.version_number,
+        "approved_by_email": approved_by.email,
+        "approved_by_role": approved_by.role,
+        "approval_timestamp": approval_ts.isoformat(),
+        "integrity_motto": "Every claim linked to its proof. No source, no flag.",
+        "claims": [
+            {
+                "id": str(c.id),
+                "claim_text": c.claim_text,
+                "status": c.status,
+                "evidence_fact_key": c.evidence_fact_key,
+                "evidence_version": c.evidence_version,
+            }
+            for c in claims
+        ],
+    }
+
+    guideline_versions = {r.rule_id: r.version for r in rules}
+    override_reasons = [
+        {
+            "finding_id": str(f.id),
+            "source_ref": f.source_ref,
+            "reason": f.dismissal_reason,
+        }
+        for f in findings
+        if f.status == "dismissed" and f.dismissal_reason
+    ]
+
+    receipt = ClaimReceipt(
+        organisation_id=draft.organisation_id,
+        draft_id=draft.id,
+        version_id=version.id,
+        approved_by=approved_by.id,
+        approved_at=approval_ts,
+        content_hash=version.content_hash,
+        claims_snapshot=claims_snapshot,
+        guideline_versions=guideline_versions,
+        override_reasons=override_reasons,
+    )
+    db.add(receipt)
+    db.flush()
+    return [receipt]

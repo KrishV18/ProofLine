@@ -1,4 +1,5 @@
 """Guideline Health & Insights Analytics Service."""
+from __future__ import annotations
 
 import uuid
 from typing import Any, Dict, List
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.finding import Finding
-from app.models.guideline_rule import GuidelineRule
+from app.models.source import GuidelineRule
 
 
 def get_rule_insights(db: Session, organisation_id: uuid.UUID) -> List[Dict[str, Any]]:
@@ -19,10 +20,15 @@ def get_rule_insights(db: Session, organisation_id: uuid.UUID) -> List[Dict[str,
         select(Finding).where(Finding.organisation_id == organisation_id)
     ).all()
 
-    # Group findings by source_ref
     rule_stats: Dict[str, Dict[str, int]] = {}
     for r in rules:
-        rule_stats[r.rule_id] = {"triggers": 0, "accepted": 0, "edited": 0, "dismissed": 0, "open": 0}
+        rule_stats[r.rule_id] = {
+            "triggers": 0,
+            "accepted": 0,
+            "edited": 0,
+            "dismissed": 0,
+            "open": 0,
+        }
 
     for f in findings:
         ref = f.source_ref
@@ -40,7 +46,6 @@ def get_rule_insights(db: Session, organisation_id: uuid.UUID) -> List[Dict[str,
 
         if total > 0:
             acceptance_rate = round(accepted_or_edited / total, 2)
-            # Health score out of 100: penalized by dismissal rate
             health_score = max(0, round((1.0 - (dismissed / total)) * 100))
         else:
             acceptance_rate = 1.0
@@ -57,4 +62,3 @@ def get_rule_insights(db: Session, organisation_id: uuid.UUID) -> List[Dict[str,
         )
 
     return insights_list
-

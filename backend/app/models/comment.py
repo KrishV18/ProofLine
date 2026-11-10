@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models._base import Base
+from app.models._base import Base, UUID_TYPE, utc_now
 
 
 class Comment(Base):
@@ -17,32 +17,32 @@ class Comment(Base):
     __tablename__ = "comments"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,
     )
     organisation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         sa.ForeignKey("organisations.id", ondelete="RESTRICT", name="fk_comments_organisation"),
         nullable=False,
     )
-    draft_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, nullable=False)
+    version_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, nullable=False)
     author_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        UUID_TYPE,
         nullable=False,
     )
     body: Mapped[str] = mapped_column(sa.Text, nullable=False)
     range_start: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     range_end: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
-    created_at: Mapped[sa.DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         sa.TIMESTAMP(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        default=utc_now,
+        server_default=func.current_timestamp(),
     )
 
     __table_args__ = (
-        # Composite FK ensures comment stays in the same org as its draft.
         sa.ForeignKeyConstraint(
             ["draft_id", "organisation_id"],
             ["drafts.id", "drafts.organisation_id"],

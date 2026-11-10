@@ -77,14 +77,14 @@ def run_checks():
     status, req_rev = request("POST", f"/drafts/{draft_id}/request-review", token=token)
     print(f"\n[7] Risk-Tier Assignment: {req_rev['risk_tier']} -> Required Role: {req_rev['required_role']}")
 
-    # 8. Login as Admin / Reviewer and Approve
-    status, admin_auth = request("POST", "/auth/login", {"email": "admin@proofline.ai", "password": "admin12345"})
-    admin_token = admin_auth["access_token"]
-    status, decision = request("POST", f"/drafts/{draft_id}/decision", {"decision": "approved", "reason": "All claims audited."}, token=admin_token)
-    print(f"[8] Approval Decision: {decision['decision']} by Admin")
+    # 8. Login as Reviewer and Approve
+    status, rev_auth = request("POST", "/auth/login", {"email": "reviewer@proofline.ai", "password": "reviewer12345"})
+    reviewer_token = rev_auth["access_token"]
+    status, decision = request("POST", f"/drafts/{draft_id}/decision", {"decision": "approved", "reason": "All claims audited."}, token=reviewer_token)
+    print(f"[8] Approval Decision: {decision['decision']} by Reviewer (status={status})")
 
     # 9. Verify Claim Receipt Generation
-    status, receipt_data = request("GET", f"/drafts/{draft_id}/receipt", token=admin_token)
+    status, receipt_data = request("GET", f"/drafts/{draft_id}/receipt", token=reviewer_token)
     print(f"[9] Claim Receipts Generated: {receipt_data['receipts_count']} immutable receipt(s)")
     if receipt_data["receipts"]:
         sample = receipt_data["receipts"][0]["receipt_data"]
@@ -92,10 +92,14 @@ def run_checks():
         print(f"    Approved By: {sample.get('approved_by_email')} at {sample.get('approval_timestamp')}")
 
     # 10. Guideline Health Scores
-    status, insights = request("GET", "/insights/rules", token=admin_token)
+    status, insights = request("GET", "/insights/rules", token=reviewer_token)
     print(f"\n[10] Guideline Health & Analytics: {len(insights)} rules monitored")
-    for rule in insights:
+    for rule in insights[:5]:
         print(f"    - Rule {rule['rule_id']}: Triggers={rule['trigger_count']}, Health Score={rule['health_score']}/100")
+
+    # 11. Dhruv's RAG Knowledge Search
+    status, rag = request("GET", "/sources/rag-search?query=Asteria%20Greens%20pricing", token=reviewer_token)
+    print(f"\n[11] RAG Knowledge Search ({rag.get('mode')}): {rag.get('total_chunks_indexed')} chunks indexed, {len(rag.get('results', []))} matches returned")
 
     print("\n" + "=" * 70)
     print(" ✅ ALL 5 CORE CAPABILITIES VERIFIED ON LIVE SERVER")
