@@ -7,14 +7,25 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+psycopg://proofline:proofline@localhost:5432/proofline"
+    database_url: str = "sqlite:///./proofline.db"
+    test_database_url: str = "postgresql+psycopg://proofline:proofline@localhost:5432/proofline_test"
     jwt_secret: str = "change-me-in-production"
-    jwt_expire_minutes: int = 60
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440
     environment: str = "development"
+
+    # LLM Configuration (Groq / OpenAI / Gemini / OpenRouter / Ollama)
     llm_api_key: str = ""
-    llm_model: str = "gemini-pro"
-    cors_origins: Union[str, List[str]] = ["http://localhost:3000"]
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_base_url: str = "https://api.groq.com/openai/v1"
     mock_ai: bool = True
+
+    # OpenAI Embeddings Configuration (RAG Subsystem)
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimensions: int = 1536
+
+    cors_origins: Union[str, List[str]] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
