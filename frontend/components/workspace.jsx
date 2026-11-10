@@ -146,7 +146,11 @@ export default function Workspace() {
               f.original &&
               !existingKeys.has(`${f.original.toLowerCase()}::${f.source?.id}`)
           );
-          const mergedFindings = [...item.findings, ...extraFindings];
+          // If local checks found nothing, use backend findings directly (no merge needed)
+          const mergedFindings =
+            item.findings.length === 0
+              ? remote.findings
+              : [...item.findings, ...extraFindings];
 
           const existingClaimTexts = new Set(
             item.claims.map((c) => c.text.toLowerCase())
