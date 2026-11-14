@@ -1,16 +1,20 @@
 """Authentication router for ProofLine API."""
 from __future__ import annotations
 
+import re
 from typing import Optional
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
 from app.core.deps import get_current_user
-from app.core.security import create_access_token, verify_dummy_password, verify_password
+from app.core.security import create_access_token, hash_password, verify_dummy_password, verify_password
 from app.db import get_db
+from app.models.organisation import Organisation
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -19,6 +23,41 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class SignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=8, max_length=72)
+
+
+@router.post("/signup", status_code=status.HTTP_201_CREATED)
+def signup(req: SignupRequest, db: Session = Depends(get_db)):
+    """Create a creator account in a separate organisation."""
+    email = req.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid email address")
+    if len(req.password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="Password must be at most 72 bytes")
+
+    organisation_id = uuid4()
+    db.add(Organisation(id=organisation_id, name=f"Writer workspace {organisation_id}"))
+    try:
+        db.flush()
+        db.add(User(
+            organisation_id=organisation_id,
+            email=email,
+            password_hash=hash_password(req.password),
+            role="creator",
+        ))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.scalar(select(User.id).where(User.email == email)) is not None:
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+        raise
+    return {"email": email}
 
 
 class UserProfile(BaseModel):

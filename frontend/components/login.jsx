@@ -11,8 +11,9 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
+import { checkBackendHealth, clearBackendToken, signIn, signUpWriter } from "../lib/backend";
 import { roles } from "../lib/workflow.mjs";
-import { Badge, Button, Field, Wordmark } from "./ui";
+import { Button, Field, Wordmark } from "./ui";
 
 const demoUsers = {
   writer: "writer@studionorth.demo",
@@ -25,7 +26,51 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState("proofline-demo");
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
+  const [signup, setSignup] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  function showSignup(value) {
+    setSignup(value);
+    setEmail("");
+    setPassword("");
+    setVisible(false);
+    setError("");
+    setMessage("");
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    const address = email.trim().toLowerCase();
+    const demo = address === demoUsers[role] && password === "proofline-demo";
+    setBusy(true);
+    setError("");
+    try {
+      if (signup) {
+        await signUpWriter(address, password);
+        showSignup(false);
+        setEmail(address);
+        setMessage("Account created. Sign in with your new password.");
+      } else {
+        clearBackendToken();
+        if (demo && !(await checkBackendHealth())) {
+          onLogin(role);
+          return;
+        }
+        const user = await signIn(address, password, role);
+        onLogin(role, role === "writer" && !demo ? user.id : null);
+      }
+    } catch (problem) {
+      setError(problem instanceof TypeError
+        ? "Cannot reach the ProofLine API. Check that the backend is running and try again."
+        : problem.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function selectRole(value) {
+    showSignup(false);
     setRole(value);
     setEmail(demoUsers[value]);
     setPassword("proofline-demo");
@@ -69,26 +114,10 @@ export default function Login({ onLogin }) {
         </p>
       </section>
       <section className="login-panel">
-        <form
-          className="login-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (
-              email.trim().toLowerCase() !== demoUsers[role] ||
-              password !== "proofline-demo"
-            ) {
-              setError(
-                "Use the demo credentials for this role. Select the role again to refill them."
-              );
-              return;
-            }
-            onLogin(role);
-          }}
-        >
-          <Badge tone="teal">Demo workspace</Badge>
-          <h2>Sign in to ProofLine</h2>
+        <form className="login-form" onSubmit={submit}>
+          <h2>{signup ? "Create a Content Writer account" : "Sign in to ProofLine"}</h2>
           <p className="muted">Choose how you’ll work in Studio North.</p>
-          <fieldset className="login-roles">
+          <fieldset className="login-roles" disabled={busy}>
             <legend className="sr-only">Workspace role</legend>
             {[
               ["writer", PenLine, "Create and check drafts"],
@@ -120,6 +149,8 @@ export default function Login({ onLogin }) {
               type="email"
               autoComplete="username"
               required
+              disabled={busy}
+              maxLength={254}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -128,7 +159,10 @@ export default function Login({ onLogin }) {
             <span className="password-field">
               <input
                 type={visible ? "text" : "password"}
-                autoComplete="current-password"
+                autoComplete={signup ? "new-password" : "current-password"}
+                minLength={signup ? 8 : undefined}
+                maxLength={signup ? 72 : undefined}
+                disabled={busy}
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -148,13 +182,26 @@ export default function Login({ onLogin }) {
               {error}
             </p>
           )}
-          <Button type="submit" className="login-submit">
-            Sign in as {roles[role]} <ArrowRight size={17} />
+          {message && <p role="status">{message}</p>}
+          <Button type="submit" className="login-submit" disabled={busy}>
+            {busy ? (signup ? "Creating account…" : "Signing in…") :
+              signup ? "Create account" : `Sign in as ${roles[role]}`}
+            <ArrowRight size={17} />
           </Button>
-          <p className="demo-note">
-            <ClipboardCheck size={16} /> Demo credentials are filled in for each
-            role.
-          </p>
+          {role === "writer" && (
+            <p className="demo-note">
+              <button type="button" className="text-button" disabled={busy} onClick={() => showSignup(!signup)}>
+                {signup ? "Back to sign in" : "Create a Content Writer account"}
+              </button>
+            </p>
+          )}
+          {signup ? (
+            <p className="demo-note">Choose a password with at least 8 characters.</p>
+          ) : role === "manager" && (
+            <p className="demo-note">
+              <ClipboardCheck size={16} /> Use your provided Manager credentials.
+            </p>
+          )}
         </form>
       </section>
     </main>

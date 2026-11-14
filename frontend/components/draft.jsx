@@ -414,7 +414,7 @@ function FindingPanel({
             </svg>
           </span>
           <h3>AI review in progress…</h3>
-          <p>Groq is checking your draft against brand guidelines. This may take up to 60 seconds if the server is waking up.</p>
+          <p>ProofLine is checking your draft against brand guidelines. This may take up to 60 seconds if the server is waking up.</p>
         </div>
       ) : !selected ? (
         <Empty

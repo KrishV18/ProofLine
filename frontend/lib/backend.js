@@ -7,11 +7,6 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 const JWT_KEY = "proofline.jwt";
 
-const DEMO_ACCOUNTS = {
-  writer: { email: "writer@studionorth.demo", password: "proofline-demo" },
-  manager: { email: "manager@studionorth.demo", password: "proofline-demo" },
-};
-
 export function getBackendToken() {
   if (typeof window === "undefined") return null;
   try {
@@ -45,7 +40,7 @@ async function apiRequest(path, options = {}, tokenOverride = null) {
     let detail = res.statusText;
     try {
       const err = await res.json();
-      detail = err.detail || detail;
+      detail = typeof err.detail === "string" ? err.detail : detail;
     } catch {}
     throw new Error(detail);
   }
@@ -63,21 +58,24 @@ export async function checkBackendHealth() {
   }
 }
 
-export async function loginBackendRole(role) {
-  const creds = DEMO_ACCOUNTS[role];
-  if (!creds) return null;
-  try {
-    const data = await apiRequest("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(creds),
-    });
-    if (typeof window !== "undefined" && data.access_token) {
-      sessionStorage.setItem(JWT_KEY, data.access_token);
-    }
-    return data;
-  } catch {
-    return null;
+export async function signIn(email, password, role) {
+  const data = await apiRequest("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  const expectedRole = role === "writer" ? "creator" : "reviewer";
+  if (data.user?.role !== expectedRole || !data.access_token) {
+    throw new Error("This account does not have access to the selected role.");
   }
+  sessionStorage.setItem(JWT_KEY, data.access_token);
+  return data.user;
+}
+
+export function signUpWriter(email, password) {
+  return apiRequest("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
 }
 
 function capitalize(str) {
@@ -97,12 +95,7 @@ function mapClaimStatus(status) {
 }
 
 export async function runBackendReview(draft) {
-  // Always ensure we have a creator/writer token for POST /drafts and /review
-  let writerToken = getBackendToken();
-  const authRes = await loginBackendRole("writer");
-  if (authRes?.access_token) {
-    writerToken = authRes.access_token;
-  }
+  const writerToken = getBackendToken();
   if (!writerToken) {
     throw new Error("Could not authenticate with ProofLine backend");
   }
@@ -205,8 +198,7 @@ export async function runBackendReview(draft) {
 export async function syncBackendDecision(backendDraftId, decision, reason) {
   if (!backendDraftId) return null;
   try {
-    const authRes = await loginBackendRole("manager");
-    const token = authRes?.access_token;
+    const token = getBackendToken();
     if (!token) return null;
     return await apiRequest(
       `/drafts/${backendDraftId}/decision`,
@@ -226,8 +218,7 @@ export async function syncBackendDecision(backendDraftId, decision, reason) {
 
 export async function searchBackendRag(query) {
   try {
-    const authRes = await loginBackendRole("writer");
-    const token = authRes?.access_token;
+    const token = getBackendToken();
     if (!token) return null;
     return await apiRequest(
       `/sources/rag-search?query=${encodeURIComponent(query)}&top_k=5`,

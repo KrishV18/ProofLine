@@ -25,7 +25,7 @@ import {
 import {
   checkBackendHealth,
   clearBackendToken,
-  loginBackendRole,
+  getBackendToken,
   runBackendReview,
   syncBackendDecision,
 } from "../lib/backend";
@@ -35,7 +35,8 @@ import { DraftScreen } from "./draft";
 import { Alerts, Audit, Insights, Library } from "./governance";
 import { Button, Toast, Wordmark } from "./ui";
 
-const workspaceKey = "proofline.workspace.v1";
+const demoWorkspaceKey = "proofline.workspace.v1";
+const accountKey = "proofline.writer-account";
 const roleKey = "proofline.role";
 const writerNav = [
   ["home", "Home", House],
@@ -67,6 +68,7 @@ const evidenceOf = (draft) => [
 export default function Workspace() {
   const [data, setData] = useState(null);
   const [role, setRole] = useState(null);
+  const [workspaceKey, setWorkspaceKey] = useState(demoWorkspaceKey);
   const [route, setRoute] = useState(["home"]);
   const [notice, setNotice] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -77,15 +79,23 @@ export default function Workspace() {
   useEffect(() => {
     checkBackendHealth().then(setBackendLive);
     try {
-      const saved = localStorage.getItem(workspaceKey);
+      const writerId = sessionStorage.getItem(accountKey);
+      const key = writerId && getBackendToken() ? `${demoWorkspaceKey}.${writerId}` : demoWorkspaceKey;
+      setWorkspaceKey(key);
+      const saved = localStorage.getItem(key);
       setData(saved ? JSON.parse(saved) : seedWorkspace());
       const active = sessionStorage.getItem(roleKey);
-      if (Object.hasOwn(roles, active)) setRole(active);
+      if (Object.hasOwn(roles, active) && (!writerId || getBackendToken())) setRole(active);
     } catch {
       setData(seedWorkspace());
       setStorageWarning(true);
     }
     const read = () => setRoute(readRoute());
+    read();
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  useEffect(() => {
     const refresh = (event) => {
       if (event.key !== workspaceKey || !event.newValue) return;
       try {
@@ -94,14 +104,9 @@ export default function Workspace() {
         setStorageWarning(true);
       }
     };
-    read();
-    window.addEventListener("hashchange", read);
     window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener("hashchange", read);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
+    return () => window.removeEventListener("storage", refresh);
+  }, [workspaceKey]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -114,28 +119,35 @@ export default function Workspace() {
     setMobileOpen(false);
     window.scrollTo(0, 0);
   }
-  function changeRole(value) {
+  function changeRole(value, writerId) {
+    const key = writerId ? `${demoWorkspaceKey}.${writerId}` : demoWorkspaceKey;
+    setWorkspaceKey(key);
     try {
-      if (value) {
-        sessionStorage.setItem(roleKey, value);
-        loginBackendRole(value).then((res) => {
-          if (res) setBackendLive(true);
-        });
-      } else {
+      if (value) sessionStorage.setItem(roleKey, value);
+      else {
         sessionStorage.removeItem(roleKey);
         clearBackendToken();
       }
+      if (writerId) sessionStorage.setItem(accountKey, writerId);
+      else sessionStorage.removeItem(accountKey);
+      const saved = localStorage.getItem(key);
+      setData(saved ? JSON.parse(saved) : seedWorkspace());
+      if (value && getBackendToken()) setBackendLive(true);
     } catch {
+      setData(seedWorkspace());
       setStorageWarning(true);
     }
+    setAiReviewing(false);
     setRole(value);
     go("home");
   }
   async function enrichWithLiveAI(savedDraft) {
-    if (!backendLive) return;
+    const token = getBackendToken();
+    if (!backendLive || !token) return;
     setAiReviewing(true);
     try {
       const remote = await runBackendReview(savedDraft);
+      if (getBackendToken() !== token) return;
       setData((prev) => {
         if (!prev) return prev;
         const nextDrafts = prev.drafts.map((item) => {
@@ -188,13 +200,10 @@ export default function Workspace() {
         } catch {}
         return nextState;
       });
-      if (remote.findings.length > 0) {
-        setNotice(`Groq AI backend check synced (${remote.findings.length} AI finding(s))`);
-      }
     } catch (err) {
       console.warn("Live backend review skipped:", err);
     } finally {
-      setAiReviewing(false);
+      if (getBackendToken() === token) setAiReviewing(false);
     }
   }
   function commit(next, message) {
@@ -653,7 +662,7 @@ export default function Workspace() {
             </span>
             <span>
               <strong>{roles[role]}</strong>
-              <small>{backendLive ? "Connected · Groq API" : "Local demo mode"}</small>
+              {/* <small>{backendLive ? "Connected · Groq API" : "Local demo mode"}</small> */}
             </span>
           </div>
           <button
