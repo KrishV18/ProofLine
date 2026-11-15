@@ -5,9 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from sqlalchemy import text
+
 from app.config import settings
 from app.core.security import validate_jwt_secret
-from app.db import SessionLocal, init_db
+from app.db import SessionLocal, engine, init_db
 from app.routers import audit, auth, drafts, findings, insights, sources
 from app.services.workflow.seed_service import seed_sample_data
 
@@ -22,6 +24,13 @@ async def lifespan(app: FastAPI):
             db = SessionLocal()
             seed_sample_data(db)
             db.close()
+        except Exception:
+            pass
+    else:
+        # Ensure PostgreSQL native ENUM has 'manager' role
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'manager'"))
         except Exception:
             pass
     yield
