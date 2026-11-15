@@ -91,11 +91,22 @@ export async function checkBackendHealth() {
 }
 
 /** Login with real credentials. Returns user profile or throws. */
-export async function login(email, password) {
+export async function login(email, password, expectedRole = null) {
   const data = await apiRequest("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  if (expectedRole) {
+    const normUserRole = data.user?.role === "reviewer" ? "manager" : data.user?.role;
+    const normExpected = expectedRole === "reviewer" ? "manager" : expectedRole;
+    if (normUserRole && normUserRole !== normExpected && data.user?.role !== "admin") {
+      const displayExpected = normExpected === "creator" ? "Creator" : "Manager";
+      const displayActual = normUserRole === "creator" ? "Creator" : "Manager";
+      throw new Error(
+        `This account is registered as a ${displayActual}, but you selected ${displayExpected}. Please select ${displayActual} to sign in.`
+      );
+    }
+  }
   storeSession(data);
   return data.user;
 }

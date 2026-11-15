@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Building2,
+  ClipboardCheck,
   Eye,
   EyeOff,
   FileCheck2,
@@ -15,6 +16,30 @@ import {
 } from "lucide-react";
 import { fetchCompanies, login, register } from "../lib/backend";
 import { Button, Field, Wordmark } from "./ui";
+
+const demoCredentials = {
+  creator: {
+    email: "writer@studionorth.demo",
+    password: "proofline-demo",
+  },
+  manager: {
+    email: "manager@studionorth.demo",
+    password: "proofline-demo",
+  },
+};
+
+const roleInfo = {
+  creator: {
+    label: "Creator",
+    description: "Create and check drafts",
+    Icon: PenLine,
+  },
+  manager: {
+    label: "Manager",
+    description: "Review and approve drafts",
+    Icon: Users,
+  },
+};
 
 export default function Login({ onLogin }) {
   // "company" | "signin" | "register"
@@ -30,23 +55,50 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchCompanies().then(setCompanies);
+    fetchCompanies().then((list) => {
+      setCompanies(list);
+    });
   }, []);
 
+  const trimmedCompany = companyInput.trim();
   const matchedCompany = companies.find(
-    (c) => c.name.trim().toLowerCase() === companyInput.trim().toLowerCase()
+    (c) => c.name.trim().toLowerCase() === trimmedCompany.toLowerCase()
   );
 
+  const isDemoCompany =
+    trimmedCompany.toLowerCase().includes("proofline") ||
+    trimmedCompany.toLowerCase().includes("studio north") ||
+    trimmedCompany.toLowerCase() === "demo";
+
   function handleCompanyNext() {
-    if (!companyInput.trim()) {
+    if (!trimmedCompany) {
       setError("Please enter your company name.");
       return;
     }
     setError("");
     if (matchedCompany) {
       setStep("signin");
+      // Auto-fill demo credentials if it's the demo company
+      if (isDemoCompany) {
+        setEmail(demoCredentials[role].email);
+        setPassword(demoCredentials[role].password);
+      } else {
+        setEmail("");
+        setPassword("");
+      }
     } else {
       setStep("register");
+      setEmail("");
+      setPassword("");
+    }
+  }
+
+  function handleRoleSelect(selectedRole) {
+    setRole(selectedRole);
+    setError("");
+    if (isDemoCompany) {
+      setEmail(demoCredentials[selectedRole].email);
+      setPassword(demoCredentials[selectedRole].password);
     }
   }
 
@@ -55,7 +107,7 @@ export default function Login({ onLogin }) {
     setError("");
     setLoading(true);
     try {
-      const user = await login(email, password);
+      const user = await login(email, password, role);
       onLogin(user);
     } catch (err) {
       setError(
@@ -78,7 +130,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const user = await register(
-        companyInput.trim(),
+        trimmedCompany,
         fullName.trim(),
         email,
         password,
@@ -135,7 +187,7 @@ export default function Login({ onLogin }) {
       </section>
 
       <section className="login-panel">
-        {/* ── Step 1: Company ── */}
+        {/* ── Step 1: Company Input ── */}
         {step === "company" && (
           <form
             className="login-form"
@@ -165,7 +217,7 @@ export default function Login({ onLogin }) {
                   type="text"
                   autoComplete="organization"
                   required
-                  placeholder="e.g. Studio North"
+                  placeholder="e.g. ProofLine Demo Org"
                   value={companyInput}
                   onChange={(e) => {
                     setCompanyInput(e.target.value);
@@ -182,15 +234,15 @@ export default function Login({ onLogin }) {
               </div>
             </Field>
 
-            {companyInput.trim() && !matchedCompany && (
+            {trimmedCompany && !matchedCompany && (
               <p className="muted" style={{ fontSize: "0.8rem" }}>
-                No company found — continuing will create a new account for{" "}
-                <strong>{companyInput.trim()}</strong>.
+                No existing company found — continuing will create a new workspace for{" "}
+                <strong>{trimmedCompany}</strong>.
               </p>
             )}
             {matchedCompany && (
               <p className="muted" style={{ fontSize: "0.8rem", color: "var(--teal)" }}>
-                ✓ Company found — sign in with your credentials.
+                ✓ Company found — continue to sign in.
               </p>
             )}
 
@@ -206,7 +258,7 @@ export default function Login({ onLogin }) {
           </form>
         )}
 
-        {/* ── Step 2a: Sign In ── */}
+        {/* ── Step 2a: Sign In with Role Selection ── */}
         {step === "signin" && (
           <form className="login-form" onSubmit={handleSignIn}>
             <button
@@ -220,10 +272,38 @@ export default function Login({ onLogin }) {
             >
               <ArrowLeft size={16} />
             </button>
-            <h2>Welcome back</h2>
+            <h2>Sign in to ProofLine</h2>
             <p className="muted">
-              Signing in to <strong>{companyInput.trim()}</strong>
+              Choose how you’ll work in <strong>{matchedCompany?.name || trimmedCompany}</strong>.
             </p>
+
+            {/* 2 Role Options: Creator and Manager */}
+            <fieldset className="login-roles" disabled={loading}>
+              <legend className="sr-only">Workspace role</legend>
+              {["creator", "manager"].map((roleKey) => {
+                const info = roleInfo[roleKey];
+                const IconComponent = info.Icon;
+                const isActive = role === roleKey;
+                return (
+                  <label
+                    key={roleKey}
+                    className={`login-role ${isActive ? "active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      checked={isActive}
+                      onChange={() => handleRoleSelect(roleKey)}
+                    />
+                    <IconComponent size={22} />
+                    <span>
+                      <strong>{info.label}</strong>
+                      <small>{info.description}</small>
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
 
             <Field label="Work email">
               <input
@@ -271,14 +351,20 @@ export default function Login({ onLogin }) {
                 </>
               ) : (
                 <>
-                  Sign in <ArrowRight size={17} />
+                  Sign in as {roleInfo[role].label} <ArrowRight size={17} />
                 </>
               )}
             </Button>
+
+            {isDemoCompany && (
+              <p className="demo-note">
+                <ClipboardCheck size={16} /> Demo credentials are automatically filled in for {roleInfo[role].label}.
+              </p>
+            )}
           </form>
         )}
 
-        {/* ── Step 2b: Register new company ── */}
+        {/* ── Step 2b: Register New Company Workspace ── */}
         {step === "register" && (
           <form className="login-form" onSubmit={handleRegister}>
             <button
@@ -294,7 +380,7 @@ export default function Login({ onLogin }) {
             </button>
             <h2>Create your workspace</h2>
             <p className="muted">
-              Setting up <strong>{companyInput.trim()}</strong> on ProofLine.
+              Setting up <strong>{trimmedCompany}</strong> on ProofLine.
             </p>
 
             <Field label="Your full name">
@@ -345,29 +431,31 @@ export default function Login({ onLogin }) {
 
             <fieldset className="login-roles" disabled={loading}>
               <legend style={{ fontSize: "0.8rem", marginBottom: 6, color: "var(--muted)" }}>
-                Your role
+                Your workspace role
               </legend>
-              {[
-                ["creator", PenLine, "Create and check drafts"],
-                ["manager", Users, "Review and approve drafts"],
-              ].map(([value, Icon, description]) => (
-                <label
-                  key={value}
-                  className={`login-role ${role === value ? "active" : ""}`}
-                >
-                  <input
-                    type="radio"
-                    name="role"
-                    checked={role === value}
-                    onChange={() => setRole(value)}
-                  />
-                  <Icon size={22} />
-                  <span>
-                    <strong style={{ textTransform: "capitalize" }}>{value}</strong>
-                    <small>{description}</small>
-                  </span>
-                </label>
-              ))}
+              {["creator", "manager"].map((roleKey) => {
+                const info = roleInfo[roleKey];
+                const IconComponent = info.Icon;
+                const isActive = role === roleKey;
+                return (
+                  <label
+                    key={roleKey}
+                    className={`login-role ${isActive ? "active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      checked={isActive}
+                      onChange={() => setRole(roleKey)}
+                    />
+                    <IconComponent size={22} />
+                    <span>
+                      <strong>{info.label}</strong>
+                      <small>{info.description}</small>
+                    </span>
+                  </label>
+                );
+              })}
             </fieldset>
 
             <p className="demo-note">Choose a password with at least 8 characters.</p>
@@ -385,7 +473,7 @@ export default function Login({ onLogin }) {
                 </>
               ) : (
                 <>
-                  Create workspace <ArrowRight size={17} />
+                  Create workspace as {roleInfo[role].label} <ArrowRight size={17} />
                 </>
               )}
             </Button>
