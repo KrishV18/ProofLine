@@ -1,4 +1,4 @@
-"""Drafts router."""
+﻿"""Drafts router."""
 from __future__ import annotations
 
 import hashlib
@@ -181,7 +181,7 @@ async def upload_document_draft(
 
 @router.get("")
 async def list_drafts(
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """List drafts for current organisation."""
@@ -218,7 +218,7 @@ async def list_drafts(
 @router.get("/{draft_id}")
 async def get_draft(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Retrieve draft details and latest version content."""
@@ -322,7 +322,7 @@ async def trigger_review(
 async def get_findings(
     draft_id: str,
     version: int,
-    current_user: User = Depends(require_role("creator", "reviewer")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Get all findings for a specific draft version."""
@@ -371,7 +371,7 @@ async def get_findings(
 async def get_claims(
     draft_id: str,
     version: int,
-    current_user: User = Depends(require_role("creator", "reviewer")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Get Claim Ledger items for a specific draft version."""
@@ -413,7 +413,7 @@ async def get_claims(
 async def compute_diff(
     draft_id: str,
     req: DiffRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Compute visual side-by-side diff and check Intent Lock message preservation."""
@@ -450,7 +450,7 @@ async def trigger_request_review(
 async def add_comment(
     draft_id: str,
     req: CommentCreateRequest,
-    current_user: User = Depends(require_role("creator", "reviewer")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Add a comment to a draft."""
@@ -505,7 +505,7 @@ async def add_comment(
 @router.get("/{draft_id}/comments")
 async def list_comments(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """List comments on a draft."""
@@ -538,7 +538,7 @@ async def list_comments(
 async def record_decision(
     draft_id: str,
     req: DecisionRequest,
-    current_user: User = Depends(require_role("reviewer")),
+    current_user: User = Depends(require_role("reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Record an approval decision on a draft."""
@@ -564,7 +564,7 @@ async def record_decision(
 @router.get("/{draft_id}/receipt")
 async def get_receipt(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Get the Claim Receipts generated for an approved draft."""
@@ -602,3 +602,4 @@ async def get_receipt(
         "receipts_count": len(formatted),
         "receipts": formatted,
     }
+

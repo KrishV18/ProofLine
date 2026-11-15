@@ -1,81 +1,101 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
-  ClipboardCheck,
+  Building2,
   Eye,
   EyeOff,
   FileCheck2,
+  Loader2,
   PenLine,
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { checkBackendHealth, clearBackendToken, signIn, signUpWriter } from "../lib/backend";
-import { roles } from "../lib/workflow.mjs";
+import { fetchCompanies, login, register } from "../lib/backend";
 import { Button, Field, Wordmark } from "./ui";
 
-const demoUsers = {
-  writer: "writer@studionorth.demo",
-  manager: "manager@studionorth.demo",
-};
-
 export default function Login({ onLogin }) {
-  const [role, setRole] = useState("writer");
-  const [email, setEmail] = useState(demoUsers.writer);
-  const [password, setPassword] = useState("proofline-demo");
+  // "company" | "signin" | "register"
+  const [step, setStep] = useState("company");
+  const [companies, setCompanies] = useState([]);
+  const [companyInput, setCompanyInput] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("creator");
   const [visible, setVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [signup, setSignup] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
 
-  function showSignup(value) {
-    setSignup(value);
-    setEmail("");
-    setPassword("");
-    setVisible(false);
-    setError("");
-    setMessage("");
-  }
+  useEffect(() => {
+    fetchCompanies().then(setCompanies);
+  }, []);
 
-  async function submit(event) {
-    event.preventDefault();
-    const address = email.trim().toLowerCase();
-    const demo = address === demoUsers[role] && password === "proofline-demo";
-    setBusy(true);
+  const matchedCompany = companies.find(
+    (c) => c.name.trim().toLowerCase() === companyInput.trim().toLowerCase()
+  );
+
+  function handleCompanyNext() {
+    if (!companyInput.trim()) {
+      setError("Please enter your company name.");
+      return;
+    }
     setError("");
-    try {
-      if (signup) {
-        await signUpWriter(address, password);
-        showSignup(false);
-        setEmail(address);
-        setMessage("Account created. Sign in with your new password.");
-      } else {
-        clearBackendToken();
-        if (demo && !(await checkBackendHealth())) {
-          onLogin(role);
-          return;
-        }
-        const user = await signIn(address, password, role);
-        onLogin(role, role === "writer" && !demo ? user.id : null);
-      }
-    } catch (problem) {
-      setError(problem instanceof TypeError
-        ? "Cannot reach the ProofLine API. Check that the backend is running and try again."
-        : problem.message);
-    } finally {
-      setBusy(false);
+    if (matchedCompany) {
+      setStep("signin");
+    } else {
+      setStep("register");
     }
   }
 
-  function selectRole(value) {
-    showSignup(false);
-    setRole(value);
-    setEmail(demoUsers[value]);
-    setPassword("proofline-demo");
+  async function handleSignIn(e) {
+    e.preventDefault();
     setError("");
+    setLoading(true);
+    try {
+      const user = await login(email, password);
+      onLogin(user);
+    } catch (err) {
+      setError(
+        err instanceof TypeError
+          ? "Cannot reach the ProofLine API. Check that the backend is running and try again."
+          : err.message || "Invalid email or password."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    setError("");
+    if (!fullName.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const user = await register(
+        companyInput.trim(),
+        fullName.trim(),
+        email,
+        password,
+        role
+      );
+      onLogin(user);
+    } catch (err) {
+      setError(
+        err instanceof TypeError
+          ? "Cannot reach the ProofLine API. Check that the backend is running and try again."
+          : err.message || "Registration failed. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="login">
       <section className="login-story">
@@ -113,96 +133,264 @@ export default function Login({ onLogin }) {
           <span>Brand review workspace</span>
         </p>
       </section>
+
       <section className="login-panel">
-        <form className="login-form" onSubmit={submit}>
-          <h2>{signup ? "Create a Content Writer account" : "Sign in to ProofLine"}</h2>
-          <p className="muted">Choose how you’ll work in Studio North.</p>
-          <fieldset className="login-roles" disabled={busy}>
-            <legend className="sr-only">Workspace role</legend>
-            {[
-              ["writer", PenLine, "Create and check drafts"],
-              ["manager", Users, "Review and manage standards"],
-            ].map(([value, Icon, description]) => (
-              <label
-                key={value}
-                className={`login-role ${role === value ? "active" : ""}`}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  checked={role === value}
-                  onChange={() => selectRole(value)}
-                  onClick={() => {
-                    if (role === value) selectRole(value);
+        {/* ── Step 1: Company ── */}
+        {step === "company" && (
+          <form
+            className="login-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCompanyNext();
+            }}
+          >
+            <h2>Sign in to ProofLine</h2>
+            <p className="muted">Enter your company name to get started.</p>
+
+            <Field label="Company name">
+              <div style={{ position: "relative" }}>
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 10,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--muted)",
+                    pointerEvents: "none",
                   }}
-                />
-                <Icon size={22} />
-                <span>
-                  <strong>{roles[value]}</strong>
-                  <small>{description}</small>
+                >
+                  <Building2 size={16} />
                 </span>
-              </label>
-            ))}
-          </fieldset>
-          <Field label="Work email">
-            <input
-              type="email"
-              autoComplete="username"
-              required
-              disabled={busy}
-              maxLength={254}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </Field>
-          <Field label="Password">
-            <span className="password-field">
+                <input
+                  type="text"
+                  autoComplete="organization"
+                  required
+                  placeholder="e.g. Studio North"
+                  value={companyInput}
+                  onChange={(e) => {
+                    setCompanyInput(e.target.value);
+                    setError("");
+                  }}
+                  style={{ paddingLeft: 32 }}
+                  list="companies-list"
+                />
+                <datalist id="companies-list">
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                </datalist>
+              </div>
+            </Field>
+
+            {companyInput.trim() && !matchedCompany && (
+              <p className="muted" style={{ fontSize: "0.8rem" }}>
+                No company found — continuing will create a new account for{" "}
+                <strong>{companyInput.trim()}</strong>.
+              </p>
+            )}
+            {matchedCompany && (
+              <p className="muted" style={{ fontSize: "0.8rem", color: "var(--teal)" }}>
+                ✓ Company found — sign in with your credentials.
+              </p>
+            )}
+
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+
+            <Button type="submit" className="login-submit">
+              Continue <ArrowRight size={17} />
+            </Button>
+          </form>
+        )}
+
+        {/* ── Step 2a: Sign In ── */}
+        {step === "signin" && (
+          <form className="login-form" onSubmit={handleSignIn}>
+            <button
+              type="button"
+              className="icon-button"
+              style={{ alignSelf: "flex-start", marginBottom: 4 }}
+              onClick={() => {
+                setStep("company");
+                setError("");
+              }}
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <h2>Welcome back</h2>
+            <p className="muted">
+              Signing in to <strong>{companyInput.trim()}</strong>
+            </p>
+
+            <Field label="Work email">
               <input
-                type={visible ? "text" : "password"}
-                autoComplete={signup ? "new-password" : "current-password"}
-                minLength={signup ? 8 : undefined}
-                maxLength={signup ? 72 : undefined}
-                disabled={busy}
+                type="email"
+                autoComplete="username"
                 required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                disabled={loading}
+                maxLength={254}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={visible ? "Hide password" : "Show password"}
-                onClick={() => setVisible(!visible)}
-              >
-                {visible ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </span>
-          </Field>
-          {error && (
-            <p role="alert" className="error">
-              {error}
+            </Field>
+
+            <Field label="Password">
+              <span className="password-field">
+                <input
+                  type={visible ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  disabled={loading}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={visible ? "Hide password" : "Show password"}
+                  onClick={() => setVisible(!visible)}
+                >
+                  {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </span>
+            </Field>
+
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+
+            <Button type="submit" className="login-submit" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 size={17} className="spin" /> Signing in…
+                </>
+              ) : (
+                <>
+                  Sign in <ArrowRight size={17} />
+                </>
+              )}
+            </Button>
+          </form>
+        )}
+
+        {/* ── Step 2b: Register new company ── */}
+        {step === "register" && (
+          <form className="login-form" onSubmit={handleRegister}>
+            <button
+              type="button"
+              className="icon-button"
+              style={{ alignSelf: "flex-start", marginBottom: 4 }}
+              onClick={() => {
+                setStep("company");
+                setError("");
+              }}
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <h2>Create your workspace</h2>
+            <p className="muted">
+              Setting up <strong>{companyInput.trim()}</strong> on ProofLine.
             </p>
-          )}
-          {message && <p role="status">{message}</p>}
-          <Button type="submit" className="login-submit" disabled={busy}>
-            {busy ? (signup ? "Creating account…" : "Signing in…") :
-              signup ? "Create account" : `Sign in as ${roles[role]}`}
-            <ArrowRight size={17} />
-          </Button>
-          {role === "writer" && (
-            <p className="demo-note">
-              <button type="button" className="text-button" disabled={busy} onClick={() => showSignup(!signup)}>
-                {signup ? "Back to sign in" : "Create a Content Writer account"}
-              </button>
-            </p>
-          )}
-          {signup ? (
+
+            <Field label="Your full name">
+              <input
+                type="text"
+                autoComplete="name"
+                required
+                disabled={loading}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </Field>
+
+            <Field label="Work email">
+              <input
+                type="email"
+                autoComplete="username"
+                required
+                disabled={loading}
+                maxLength={254}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </Field>
+
+            <Field label="Password">
+              <span className="password-field">
+                <input
+                  type={visible ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  minLength={8}
+                  maxLength={72}
+                  disabled={loading}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={visible ? "Hide password" : "Show password"}
+                  onClick={() => setVisible(!visible)}
+                >
+                  {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </span>
+            </Field>
+
+            <fieldset className="login-roles" disabled={loading}>
+              <legend style={{ fontSize: "0.8rem", marginBottom: 6, color: "var(--muted)" }}>
+                Your role
+              </legend>
+              {[
+                ["creator", PenLine, "Create and check drafts"],
+                ["manager", Users, "Review and approve drafts"],
+              ].map(([value, Icon, description]) => (
+                <label
+                  key={value}
+                  className={`login-role ${role === value ? "active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    checked={role === value}
+                    onChange={() => setRole(value)}
+                  />
+                  <Icon size={22} />
+                  <span>
+                    <strong style={{ textTransform: "capitalize" }}>{value}</strong>
+                    <small>{description}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
             <p className="demo-note">Choose a password with at least 8 characters.</p>
-          ) : role === "manager" && (
-            <p className="demo-note">
-              <ClipboardCheck size={16} /> Use your provided Manager credentials.
-            </p>
-          )}
-        </form>
+
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+
+            <Button type="submit" className="login-submit" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 size={17} className="spin" /> Creating workspace…
+                </>
+              ) : (
+                <>
+                  Create workspace <ArrowRight size={17} />
+                </>
+              )}
+            </Button>
+          </form>
+        )}
       </section>
     </main>
   );

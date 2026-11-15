@@ -26,6 +26,7 @@ import {
   checkBackendHealth,
   clearBackendToken,
   getBackendToken,
+  getStoredUser,
   runBackendReview,
   syncBackendDecision,
 } from "../lib/backend";
@@ -68,6 +69,7 @@ const evidenceOf = (draft) => [
 export default function Workspace() {
   const [data, setData] = useState(null);
   const [role, setRole] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [workspaceKey, setWorkspaceKey] = useState(demoWorkspaceKey);
   const [route, setRoute] = useState(["home"]);
   const [notice, setNotice] = useState("");
@@ -76,16 +78,28 @@ export default function Workspace() {
   const [backendLive, setBackendLive] = useState(false);
   const [aiReviewing, setAiReviewing] = useState(false);
 
+  // Init: restore session, check backend health
   useEffect(() => {
     checkBackendHealth().then(setBackendLive);
     try {
+      // Restore user profile from sessionStorage
+      const storedUser = getStoredUser();
       const writerId = sessionStorage.getItem(accountKey);
-      const key = writerId && getBackendToken() ? `${demoWorkspaceKey}.${writerId}` : demoWorkspaceKey;
+      const key = (writerId || storedUser?.id) && getBackendToken()
+        ? `${demoWorkspaceKey}.${writerId || storedUser?.id}`
+        : demoWorkspaceKey;
       setWorkspaceKey(key);
       const saved = localStorage.getItem(key);
       setData(saved ? JSON.parse(saved) : seedWorkspace());
-      const active = sessionStorage.getItem(roleKey);
-      if (Object.hasOwn(roles, active) && (!writerId || getBackendToken())) setRole(active);
+
+      if (storedUser && getBackendToken()) {
+        const uiRole = storedUser.role === "manager" ? "manager" : "writer";
+        setRole(uiRole);
+        setUserProfile(storedUser);
+      } else {
+        const active = sessionStorage.getItem(roleKey);
+        if (Object.hasOwn(roles, active) && (!writerId || getBackendToken())) setRole(active);
+      }
     } catch {
       setData(seedWorkspace());
       setStorageWarning(true);
@@ -95,6 +109,8 @@ export default function Workspace() {
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
   }, []);
+
+  // Watch for cross-tab localStorage changes (keyed to current workspaceKey)
   useEffect(() => {
     const refresh = (event) => {
       if (event.key !== workspaceKey || !event.newValue) return;
@@ -107,6 +123,7 @@ export default function Workspace() {
     window.addEventListener("storage", refresh);
     return () => window.removeEventListener("storage", refresh);
   }, [workspaceKey]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -119,34 +136,53 @@ export default function Workspace() {
     setMobileOpen(false);
     window.scrollTo(0, 0);
   }
-  function changeRole(value, writerId) {
-    const key = writerId ? `${demoWorkspaceKey}.${writerId}` : demoWorkspaceKey;
-    setWorkspaceKey(key);
+
+  function changeRole(value) {
     try {
-      if (value) sessionStorage.setItem(roleKey, value);
-      else {
+      if (value && typeof value === "object" && value.role) {
+        // Real login: value is a user profile object from backend
+        const uiRole = value.role === "manager" ? "manager" : "writer";
+        const userId = value.id;
+        const key = userId ? `${demoWorkspaceKey}.${userId}` : demoWorkspaceKey;
+        setWorkspaceKey(key);
+        sessionStorage.setItem(roleKey, uiRole);
+        if (userId) sessionStorage.setItem(accountKey, userId);
+        else sessionStorage.removeItem(accountKey);
+        const saved = localStorage.getItem(key);
+        setData(saved ? JSON.parse(saved) : seedWorkspace());
+        setUserProfile(value);
+        setBackendLive(true);
+        setRole(uiRole);
+      } else if (value) {
+        // Legacy fallback: value is a role string
+        sessionStorage.setItem(roleKey, value);
+        setRole(value);
+      } else {
+        // Sign out
         sessionStorage.removeItem(roleKey);
+        sessionStorage.removeItem(accountKey);
         clearBackendToken();
+        setUserProfile(null);
+        setWorkspaceKey(demoWorkspaceKey);
+        const saved = localStorage.getItem(demoWorkspaceKey);
+        setData(saved ? JSON.parse(saved) : seedWorkspace());
+        setRole(null);
       }
-      if (writerId) sessionStorage.setItem(accountKey, writerId);
-      else sessionStorage.removeItem(accountKey);
-      const saved = localStorage.getItem(key);
-      setData(saved ? JSON.parse(saved) : seedWorkspace());
-      if (value && getBackendToken()) setBackendLive(true);
     } catch {
       setData(seedWorkspace());
       setStorageWarning(true);
     }
     setAiReviewing(false);
-    setRole(value);
     go("home");
   }
+
   async function enrichWithLiveAI(savedDraft) {
     const token = getBackendToken();
     if (!backendLive || !token) return;
     setAiReviewing(true);
     try {
       const remote = await runBackendReview(savedDraft);
+      // If user signed out or token changed while we were waiting, discard
       if (getBackendToken() !== token) return;
       setData((prev) => {
         if (!prev) return prev;
@@ -221,7 +257,7 @@ export default function Workspace() {
       events: [
         {
           id: crypto.randomUUID(),
-          actor: roles[role],
+          actor: userProfile?.full_name || roles[role],
           action,
           detail,
           date: stamp(),
@@ -347,7 +383,7 @@ export default function Workspace() {
       version: draft.version,
       claims: draft.claims,
       date: stamp(),
-      approver: roles[role],
+      approver: userProfile?.full_name || roles[role],
       legal: draft.legal,
       override,
     };
@@ -502,7 +538,7 @@ export default function Workspace() {
           onComment={(note, quote, changes) => {
             const comments = [
               ...draft.comments,
-              { author: roles[role], text: note, quote, date: stamp() },
+              { author: userProfile?.full_name || roles[role], text: note, quote, date: stamp() },
             ];
             saveDraft(
               {
@@ -630,9 +666,13 @@ export default function Workspace() {
           <Wordmark />
         </a>
         <div className="workspace-label">
-          <span className="workspace-avatar">SN</span>
+          <span className="workspace-avatar">
+            {userProfile?.organisation_name
+              ? userProfile.organisation_name.slice(0, 2).toUpperCase()
+              : "SN"}
+          </span>
           <span>
-            <strong>Studio North</strong>
+            <strong>{userProfile?.organisation_name || "Studio North"}</strong>
             <small>Brand workspace</small>
           </span>
         </div>
@@ -658,11 +698,18 @@ export default function Workspace() {
         <div className="sidebar-footer">
           <div>
             <span className="profile-initial">
-              {role === "writer" ? "CW" : "M"}
+              {userProfile?.full_name
+                ? userProfile.full_name.slice(0, 2).toUpperCase()
+                : role === "writer" ? "CW" : "M"}
             </span>
             <span>
-              <strong>{roles[role]}</strong>
-              {/* <small>{backendLive ? "Connected · Groq API" : "Local demo mode"}</small> */}
+              <strong>{userProfile?.full_name || roles[role]}</strong>
+              <small>
+                {userProfile
+                  ? (userProfile.role.charAt(0).toUpperCase() + userProfile.role.slice(1)) +
+                    (backendLive ? " · Connected" : "")
+                  : backendLive ? "Connected · Groq API" : "Local demo mode"}
+              </small>
             </span>
           </div>
           <button

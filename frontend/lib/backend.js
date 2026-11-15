@@ -1,11 +1,15 @@
 /**
  * Live ProofLine FastAPI Backend Bridge for frontend-proofline.
- * Connects Tanisha's Studio North workspace to Kalash's 4-layer Groq LLM review engine,
- * Krish's RBAC/DB API, and Dhruv's RAG subsystem.
+ * Real JWT-based auth — no hardcoded demo accounts.
  */
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 const JWT_KEY = "proofline.jwt";
+const USER_KEY = "proofline.user";
+
+// ---------------------------------------------------------------------------
+// Token / session helpers
+// ---------------------------------------------------------------------------
 
 export function getBackendToken() {
   if (typeof window === "undefined") return null;
@@ -20,8 +24,31 @@ export function clearBackendToken() {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(JWT_KEY);
+    sessionStorage.removeItem(USER_KEY);
   } catch {}
 }
+
+export function getStoredUser() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeSession(data) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(JWT_KEY, data.access_token);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Low-level fetch wrapper
+// ---------------------------------------------------------------------------
 
 async function apiRequest(path, options = {}, tokenOverride = null) {
   const token = tokenOverride || getBackendToken();
@@ -40,12 +67,17 @@ async function apiRequest(path, options = {}, tokenOverride = null) {
     let detail = res.statusText;
     try {
       const err = await res.json();
+      // Guard: FastAPI sometimes returns non-string detail (e.g. validation array)
       detail = typeof err.detail === "string" ? err.detail : detail;
     } catch {}
     throw new Error(detail);
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Auth API calls
+// ---------------------------------------------------------------------------
 
 export async function checkBackendHealth() {
   try {
@@ -58,25 +90,49 @@ export async function checkBackendHealth() {
   }
 }
 
-export async function signIn(email, password, role) {
+/** Login with real credentials. Returns user profile or throws. */
+export async function login(email, password) {
   const data = await apiRequest("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  const expectedRole = role === "writer" ? "creator" : "reviewer";
-  if (data.user?.role !== expectedRole || !data.access_token) {
-    throw new Error("This account does not have access to the selected role.");
-  }
-  sessionStorage.setItem(JWT_KEY, data.access_token);
+  storeSession(data);
   return data.user;
 }
 
-export function signUpWriter(email, password) {
-  return apiRequest("/auth/signup", {
+/** Register a new company + first user. Returns user profile or throws. */
+export async function register(companyName, fullName, email, password, role = "manager") {
+  const data = await apiRequest("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      company_name: companyName,
+      full_name: fullName,
+      email,
+      password,
+      role,
+    }),
   });
+  storeSession(data);
+  return data.user;
 }
+
+/** Fetch companies list for autocomplete. */
+export async function fetchCompanies() {
+  try {
+    return await apiRequest("/auth/companies");
+  } catch {
+    return [];
+  }
+}
+
+/** Re-validate the stored JWT and return the user profile. */
+export async function getMe() {
+  return apiRequest("/auth/me");
+}
+
+// ---------------------------------------------------------------------------
+// Draft review API
+// ---------------------------------------------------------------------------
 
 function capitalize(str) {
   if (!str) return "";
@@ -97,7 +153,7 @@ function mapClaimStatus(status) {
 export async function runBackendReview(draft) {
   const writerToken = getBackendToken();
   if (!writerToken) {
-    throw new Error("Could not authenticate with ProofLine backend");
+    throw new Error("Not authenticated — please sign in first");
   }
 
   let backendDraftId = draft.backendId;
@@ -229,4 +285,3 @@ export async function searchBackendRag(query) {
     return null;
   }
 }
-

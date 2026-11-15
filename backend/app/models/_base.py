@@ -19,7 +19,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 # These are defined here so both the ORM and the migration can reference the
 # same string names, preventing drift.
 
-USER_ROLE_VALUES       = ("creator", "reviewer", "admin")
+USER_ROLE_VALUES       = ("creator", "reviewer", "manager", "admin")
 DRAFT_STATUS_VALUES    = ("draft", "in_review", "changes_requested", "approved")
 FINDING_SEVERITY_VALUES = ("blocker", "warning", "note")
 FINDING_CONFIDENCE_VALUES = ("high", "medium", "low")
