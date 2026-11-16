@@ -120,7 +120,7 @@ async def list_sources(
 @router.post("/guidelines", status_code=status.HTTP_201_CREATED)
 async def create_guideline(
     req: GuidelineCreate,
-    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned guideline rule for the organisation."""
@@ -173,7 +173,7 @@ async def create_guideline(
 @router.post("/facts", status_code=status.HTTP_201_CREATED)
 async def create_fact(
     req: FactCreate,
-    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned fact entry for the organisation."""
@@ -233,7 +233,7 @@ async def create_fact(
 @router.post("/terms", status_code=status.HTTP_201_CREATED)
 async def create_term(
     req: TermCreate,
-    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned terminology entry for the organisation."""
@@ -307,7 +307,7 @@ async def rag_search(
 @router.post("/extract-document")
 async def extract_document_sources(
     file: UploadFile = File(...),
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
 ):
     """Extract guidelines, verified facts, and terminology from an uploaded document."""
     content = await file.read()
@@ -332,7 +332,7 @@ async def extract_document_sources(
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
 async def bulk_import_sources(
     req: BulkImportRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Import multiple extracted guidelines, facts, and terms into the brand library."""

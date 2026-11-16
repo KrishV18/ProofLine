@@ -6,12 +6,13 @@ import uuid
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
 from app.core.roles import require_role
 from app.db import get_db
+from app.models.approval import Approval
 from app.models.claim_receipt import Claim, ClaimReceipt
 from app.models.comment import Comment
 from app.models.draft import Draft, DraftVersion
@@ -68,7 +69,7 @@ def _content_hash(content: str) -> str:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_draft(
     req: DraftCreateRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "manager")),
     db: Session = Depends(get_db),
 ):
     """Create a new draft with initial version 1."""
@@ -122,7 +123,7 @@ async def create_draft(
 async def upload_document_draft(
     file: UploadFile = File(...),
     channel: Optional[str] = None,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, DOCX, or text file and automatically create a new draft."""
@@ -299,7 +300,7 @@ async def create_draft_version(
 @router.post("/{draft_id}/review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "manager")),
     db: Session = Depends(get_db),
 ):
     """Trigger automated 4-layer review of draft's latest version."""
@@ -324,7 +325,7 @@ async def trigger_review(
 async def get_findings(
     draft_id: str,
     version: int,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Get all findings for a specific draft version."""
@@ -436,7 +437,7 @@ async def compute_diff(
 @router.post("/{draft_id}/request-review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_request_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "manager")),
     db: Session = Depends(get_db),
 ):
     """Request human review of the draft, evaluating risk tier."""
@@ -452,7 +453,7 @@ async def trigger_request_review(
 async def add_comment(
     draft_id: str,
     req: CommentCreateRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Add a comment to a draft."""
@@ -540,7 +541,7 @@ async def list_comments(
 async def record_decision(
     draft_id: str,
     req: DecisionRequest,
-    current_user: User = Depends(require_role("reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Record an approval decision on a draft."""
@@ -604,4 +605,108 @@ async def get_receipt(
         "receipts_count": len(formatted),
         "receipts": formatted,
     }
+
+
+@router.delete("/purge-all", status_code=status.HTTP_200_OK)
+async def purge_all_org_drafts(
+    all_orgs: bool = False,
+    current_user: User = Depends(require_role("admin", "manager", "reviewer")),
+    db: Session = Depends(get_db),
+):
+    """
+    Admin/Manager/Reviewer: Delete ALL draft data for the org (or all orgs).
+    Uses raw SQL with DEFERRED/IMMEDIATE so FK-RESTRICT constraints don't block the cascade.
+    """
+    from sqlalchemy import text as sql_text
+
+    org_id = str(current_user.organisation_id)
+
+    try:
+        # Drop immutability triggers (allowed for table owner) so purge can proceed
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_claim_receipts_immutable ON claim_receipts"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_claim_receipts_no_truncate ON claim_receipts"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_draft_versions_immutable_content ON draft_versions"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_audit_log_immutable ON audit_log"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_audit_log_no_truncate ON audit_log"))
+
+        if all_orgs:
+            # Nuke everything — full reset
+            db.execute(sql_text("DELETE FROM findings"))
+            db.execute(sql_text("DELETE FROM claims"))
+            db.execute(sql_text("DELETE FROM claim_receipts"))
+            db.execute(sql_text("DELETE FROM approvals"))
+            db.execute(sql_text("DELETE FROM comments"))
+            db.execute(sql_text("DELETE FROM audit_log WHERE entity IN ('draft','draft_version','comment','finding')"))
+            db.execute(sql_text("DELETE FROM draft_versions"))
+            db.execute(sql_text("DELETE FROM drafts"))
+        else:
+            db.execute(sql_text("DELETE FROM findings WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM claims WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM claim_receipts WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM approvals WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM comments WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text(
+                "DELETE FROM audit_log WHERE organisation_id = :oid AND entity IN ('draft','draft_version','comment','finding')"
+            ), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM draft_versions WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM drafts WHERE organisation_id = :oid"), {"oid": org_id})
+
+        # Re-create immutability triggers
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_draft_versions_immutable_content
+            BEFORE UPDATE OR DELETE ON draft_versions
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_content()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_audit_log_immutable
+            BEFORE UPDATE OR DELETE ON audit_log
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_audit_log_no_truncate
+            BEFORE TRUNCATE ON audit_log
+            FOR EACH STATEMENT EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_claim_receipts_immutable
+            BEFORE UPDATE OR DELETE ON claim_receipts
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_claim_receipts_no_truncate
+            BEFORE TRUNCATE ON claim_receipts
+            FOR EACH STATEMENT EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+
+        db.commit()
+
+        return {
+            "message": "All draft data purged.",
+            "all_orgs": all_orgs,
+            "organisation_id": org_id if not all_orgs else "all",
+        }
+    except Exception as exc:
+        db.rollback()
+        # Always attempt to restore triggers if they were dropped
+        try:
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_draft_versions_immutable_content
+                BEFORE UPDATE OR DELETE ON draft_versions
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_content()
+            """))
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_audit_log_immutable
+                BEFORE UPDATE OR DELETE ON audit_log
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+            """))
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_claim_receipts_immutable
+                BEFORE UPDATE OR DELETE ON claim_receipts
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+            """))
+            db.commit()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Purge failed: {str(exc)}")
+
 

@@ -354,3 +354,136 @@ export async function fetchBackendSources() {
   }
 }
 
+export async function fetchBackendAudit() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/audit", { method: "GET" }, token);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchBackendInsights() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/insights/rules", { method: "GET" }, token);
+  } catch {
+    return [];
+  }
+}
+
+export async function requestBackendHumanReview(backendDraftId) {
+  if (!backendDraftId) return null;
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest(
+      `/drafts/${backendDraftId}/request-review`,
+      { method: "POST" },
+      token
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Create a new draft in the backend database scoped to the user's organisation. */
+export async function createBackendDraft(draft) {
+  const token = getBackendToken();
+  if (!token) return null;
+  try {
+    return await apiRequest(
+      "/drafts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: draft.title || "Untitled Draft",
+          content: draft.text || "",
+          channel: draft.channel || "Email",
+          intent_lock: draft.intent || {},
+        }),
+      },
+      token
+    );
+  } catch (err) {
+    console.warn("createBackendDraft failed:", err);
+    return null;
+  }
+}
+
+/** Fetch a single draft's full details (title, content, status, intent_lock). */
+export async function fetchBackendDraft(draftId) {
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest(`/drafts/${draftId}`, { method: "GET" }, token);
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch findings for a specific draft version. */
+export async function fetchBackendFindings(draftId, version = 1) {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest(
+      `/drafts/${draftId}/versions/${version}/findings`,
+      { method: "GET" },
+      token
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch claims for a specific draft version. */
+export async function fetchBackendClaims(draftId, version = 1) {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest(
+      `/drafts/${draftId}/versions/${version}/claims`,
+      { method: "GET" },
+      token
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map a backend draft list item into the frontend draft model.
+ * Full findings/claims are loaded lazily when the draft is opened.
+ */
+export function mapBackendDraftToFrontend(d) {
+  const statusMap = {
+    draft: "draft",
+    in_review: "review",
+    changes_requested: "changes",
+    approved: "approved",
+    published: "published",
+  };
+  return {
+    id: d.id,
+    backendId: d.id,
+    title: d.title || "Untitled Draft",
+    text: d.content || d.content_preview || "",
+    channel: d.channel || "Email",
+    status: statusMap[d.status] || "draft",
+    intent: d.intent_lock || { message: "", audience: "", action: "" },
+    findings: [],
+    claims: [],
+    comments: [],
+    versions: [],
+    version: d.latest_version || 1,
+    risk: "Low",
+    checked: false,
+    legal: "",
+    created: d.created_at || new Date().toISOString(),
+    updated: d.created_at || new Date().toISOString(),
+  };
+}
+
