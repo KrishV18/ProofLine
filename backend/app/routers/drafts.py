@@ -606,7 +606,7 @@ async def get_receipt(
 
 @router.delete("/purge-all", status_code=status.HTTP_200_OK)
 async def purge_all_org_drafts(
-    current_user: User = Depends(require_role("admin", "manager")),
+    current_user: User = Depends(require_role("admin", "manager", "reviewer")),
     db: Session = Depends(get_db),
 ):
     """
