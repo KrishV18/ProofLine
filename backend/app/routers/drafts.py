@@ -1,4 +1,4 @@
-﻿"""Drafts router."""
+"""Drafts router."""
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
@@ -601,5 +601,83 @@ async def get_receipt(
         "status": draft.status,
         "receipts_count": len(formatted),
         "receipts": formatted,
+    }
+
+
+@router.delete("/purge-all", status_code=status.HTTP_200_OK)
+async def purge_all_org_drafts(
+    current_user: User = Depends(require_role("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    """
+    Admin/Manager: Delete ALL draft data (findings, claims, comments, versions,
+    drafts) for the current organisation. Used for dev/data-reset only.
+    Data is scoped to the caller's organisation_id — cross-org deletion is impossible.
+    """
+    org_id = current_user.organisation_id
+
+    # Collect all draft IDs for this org first
+    draft_ids = db.scalars(
+        select(Draft.id).where(Draft.organisation_id == org_id)
+    ).all()
+
+    if not draft_ids:
+        return {"deleted": 0, "message": "No drafts found for this organisation."}
+
+    # Collect all version IDs
+    version_ids = db.scalars(
+        select(DraftVersion.id).where(DraftVersion.organisation_id == org_id)
+    ).all()
+
+    deleted_counts = {}
+
+    # Delete child rows first (FK order)
+    if version_ids:
+        r = db.execute(
+            Finding.__table__.delete().where(Finding.version_id.in_(version_ids))
+        )
+        deleted_counts["findings"] = r.rowcount
+
+        r = db.execute(
+            Claim.__table__.delete().where(Claim.version_id.in_(version_ids))
+        )
+        deleted_counts["claims"] = r.rowcount
+
+    r = db.execute(
+        ClaimReceipt.__table__.delete().where(ClaimReceipt.organisation_id == org_id)
+    )
+    deleted_counts["receipts"] = r.rowcount
+
+    r = db.execute(
+        Comment.__table__.delete().where(Comment.organisation_id == org_id)
+    )
+    deleted_counts["comments"] = r.rowcount
+
+    r = db.execute(
+        DraftVersion.__table__.delete().where(DraftVersion.organisation_id == org_id)
+    )
+    deleted_counts["versions"] = r.rowcount
+
+    r = db.execute(
+        Draft.__table__.delete().where(Draft.organisation_id == org_id)
+    )
+    deleted_counts["drafts"] = r.rowcount
+
+    db.commit()
+
+    log_action(
+        db=db,
+        organisation_id=org_id,
+        user_id=current_user.id,
+        action="purge_all_drafts",
+        entity="organisation",
+        entity_id=org_id,
+        details=deleted_counts,
+    )
+
+    return {
+        "message": "All draft data purged for this organisation.",
+        "organisation_id": str(org_id),
+        "deleted": deleted_counts,
     }
 

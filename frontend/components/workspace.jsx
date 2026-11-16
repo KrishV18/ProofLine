@@ -25,8 +25,11 @@ import {
 import {
   checkBackendHealth,
   clearBackendToken,
+  fetchBackendDraft,
+  fetchBackendDrafts,
   getBackendToken,
   getStoredUser,
+  mapBackendDraftToFrontend,
   requestBackendHumanReview,
   runBackendReview,
   syncBackendDecision,
@@ -86,23 +89,41 @@ export default function Workspace() {
       // Restore user profile from sessionStorage
       const storedUser = getStoredUser();
       const writerId = sessionStorage.getItem(accountKey);
-      const key = (writerId || storedUser?.id) && getBackendToken()
+      const hasAuth = (writerId || storedUser?.id) && getBackendToken();
+      const key = hasAuth
         ? `${demoWorkspaceKey}.${writerId || storedUser?.id}`
         : demoWorkspaceKey;
       setWorkspaceKey(key);
-      const saved = localStorage.getItem(key);
-      setData(saved ? JSON.parse(saved) : seedWorkspace());
+      // For authenticated sessions start with empty state; hydrateFromDB fills it
+      setData({ drafts: [], sources: [], events: [], alerts: [] });
 
       if (storedUser && getBackendToken()) {
         const uiRole = storedUser.role === "manager" ? "manager" : "writer";
         setRole(uiRole);
         setUserProfile(storedUser);
+        // Async hydration from DB
+        setTimeout(() => {
+          fetchBackendDrafts()
+            .then((remoteDrafts) => {
+              if (!Array.isArray(remoteDrafts)) return;
+              const mapped = remoteDrafts.map(mapBackendDraftToFrontend);
+              setData((prev) => {
+                if (!prev) return prev;
+                const remoteIds = new Set(mapped.map((d) => d.id));
+                const localOnly = (prev.drafts || []).filter(
+                  (d) => !d.backendId && !remoteIds.has(d.id)
+                );
+                return { ...prev, drafts: [...mapped, ...localOnly] };
+              });
+            })
+            .catch(() => {});
+        }, 100);
       } else {
         const active = sessionStorage.getItem(roleKey);
         if (Object.hasOwn(roles, active) && (!writerId || getBackendToken())) setRole(active);
       }
     } catch {
-      setData(seedWorkspace());
+      setData({ drafts: [], sources: [], events: [], alerts: [] });
       setStorageWarning(true);
     }
     const read = () => setRoute(readRoute());
@@ -149,32 +170,64 @@ export default function Workspace() {
         sessionStorage.setItem(roleKey, uiRole);
         if (userId) sessionStorage.setItem(accountKey, userId);
         else sessionStorage.removeItem(accountKey);
-        const saved = localStorage.getItem(key);
-        setData(saved ? JSON.parse(saved) : seedWorkspace());
+        // Start with empty workspace — hydrateFromDB() will populate from DB
+        setData({ drafts: [], sources: [], events: [], alerts: [] });
         setUserProfile(value);
         setBackendLive(true);
         setRole(uiRole);
+        // Kick off DB hydration (async, non-blocking)
+        setTimeout(hydrateFromDB, 50);
       } else if (value) {
         // Legacy fallback: value is a role string
         sessionStorage.setItem(roleKey, value);
         setRole(value);
       } else {
-        // Sign out
+        // Sign out — clear all state
         sessionStorage.removeItem(roleKey);
         sessionStorage.removeItem(accountKey);
         clearBackendToken();
         setUserProfile(null);
         setWorkspaceKey(demoWorkspaceKey);
-        const saved = localStorage.getItem(demoWorkspaceKey);
-        setData(saved ? JSON.parse(saved) : seedWorkspace());
+        setData({ drafts: [], sources: [], events: [], alerts: [] });
         setRole(null);
       }
     } catch {
-      setData(seedWorkspace());
+      setData({ drafts: [], sources: [], events: [], alerts: [] });
       setStorageWarning(true);
     }
     setAiReviewing(false);
     go("home");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hydrate workspace drafts from the backend DB (company-scoped via JWT)
+  // ---------------------------------------------------------------------------
+  async function hydrateFromDB() {
+    const token = getBackendToken();
+    if (!token) return;
+    try {
+      const remoteDrafts = await fetchBackendDrafts();
+      if (!Array.isArray(remoteDrafts)) return;
+      const mapped = remoteDrafts.map(mapBackendDraftToFrontend);
+      setData((prev) => {
+        if (!prev) return prev;
+        // Merge: keep any purely-local drafts that have no backendId yet
+        const remoteIds = new Set(mapped.map((d) => d.id));
+        const localOnly = (prev.drafts || []).filter(
+          (d) => !d.backendId && !remoteIds.has(d.id)
+        );
+        const merged = [...mapped, ...localOnly];
+        const next = { ...prev, drafts: merged };
+        try {
+          const uid = sessionStorage.getItem(accountKey);
+          const wsKey = uid ? `${demoWorkspaceKey}.${uid}` : demoWorkspaceKey;
+          localStorage.setItem(wsKey, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    } catch (err) {
+      console.warn("hydrateFromDB failed:", err);
+    }
   }
 
   async function enrichWithLiveAI(savedDraft) {
@@ -427,7 +480,25 @@ export default function Workspace() {
         : "queue"
       : activePage;
   const startDraft = () => go("draft", "new");
-  const openDraft = (value) => go("draft", value);
+  const openDraft = (value) => {
+    go("draft", value);
+    // If the draft exists and was loaded from DB with no text yet, hydrate it
+    const existing = data.drafts.find((d) => d.id === value);
+    if (existing?.backendId && !existing.text) {
+      fetchBackendDraft(value)
+        .then((full) => {
+          if (!full) return;
+          setData((prev) => {
+            if (!prev) return prev;
+            const updated = prev.drafts.map((d) =>
+              d.id === value ? { ...d, text: full.content || "", intent: full.intent_lock || d.intent } : d
+            );
+            return { ...prev, drafts: updated };
+          });
+        })
+        .catch(() => {});
+    }
+  };
   let content;
 
   switch (activePage) {

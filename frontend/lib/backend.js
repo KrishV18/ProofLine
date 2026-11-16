@@ -351,3 +351,78 @@ export async function requestBackendHumanReview(backendDraftId) {
     return null;
   }
 }
+
+/** Fetch a single draft's full details (title, content, status, intent_lock). */
+export async function fetchBackendDraft(draftId) {
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest(`/drafts/${draftId}`, { method: "GET" }, token);
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch findings for a specific draft version. */
+export async function fetchBackendFindings(draftId, version = 1) {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest(
+      `/drafts/${draftId}/versions/${version}/findings`,
+      { method: "GET" },
+      token
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch claims for a specific draft version. */
+export async function fetchBackendClaims(draftId, version = 1) {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest(
+      `/drafts/${draftId}/versions/${version}/claims`,
+      { method: "GET" },
+      token
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map a backend draft list item into the frontend draft model.
+ * Full findings/claims are loaded lazily when the draft is opened.
+ */
+export function mapBackendDraftToFrontend(d) {
+  // Map backend status → frontend status
+  const statusMap = {
+    draft: "draft",
+    in_review: "review",
+    changes_requested: "changes",
+    approved: "approved",
+    published: "published",
+  };
+  return {
+    id: d.id,
+    backendId: d.id,
+    title: d.title || "Untitled Draft",
+    text: d.content || d.content_preview || "",
+    channel: d.channel || "Email",
+    status: statusMap[d.status] || "draft",
+    intent: d.intent_lock || { message: "", audience: "", action: "" },
+    findings: [],
+    claims: [],
+    comments: [],
+    versions: [],
+    version: d.latest_version || 1,
+    risk: "Low",
+    checked: false,
+    legal: "",
+    created: d.created_at || new Date().toISOString(),
+    updated: d.created_at || new Date().toISOString(),
+  };
+}
