@@ -614,6 +614,8 @@ async def purge_all_org_drafts(
     drafts) for the current organisation. Used for dev/data-reset only.
     Data is scoped to the caller's organisation_id — cross-org deletion is impossible.
     """
+    from sqlalchemy import delete as sa_delete
+
     org_id = current_user.organisation_id
 
     # Collect all draft IDs for this org first
@@ -624,56 +626,35 @@ async def purge_all_org_drafts(
     if not draft_ids:
         return {"deleted": 0, "message": "No drafts found for this organisation."}
 
-    # Collect all version IDs
+    # Collect all version IDs for these drafts
     version_ids = db.scalars(
-        select(DraftVersion.id).where(DraftVersion.organisation_id == org_id)
+        select(DraftVersion.id).where(DraftVersion.draft_id.in_(draft_ids))
     ).all()
 
     deleted_counts = {}
 
     # Delete child rows first (FK order)
     if version_ids:
-        r = db.execute(
-            Finding.__table__.delete().where(Finding.version_id.in_(version_ids))
-        )
+        r = db.execute(sa_delete(Finding).where(Finding.version_id.in_(version_ids)))
         deleted_counts["findings"] = r.rowcount
 
-        r = db.execute(
-            Claim.__table__.delete().where(Claim.version_id.in_(version_ids))
-        )
+        r = db.execute(sa_delete(Claim).where(Claim.version_id.in_(version_ids)))
         deleted_counts["claims"] = r.rowcount
 
-    r = db.execute(
-        ClaimReceipt.__table__.delete().where(ClaimReceipt.organisation_id == org_id)
-    )
+    r = db.execute(sa_delete(ClaimReceipt).where(ClaimReceipt.draft_id.in_(draft_ids)))
     deleted_counts["receipts"] = r.rowcount
 
-    r = db.execute(
-        Comment.__table__.delete().where(Comment.organisation_id == org_id)
-    )
+    r = db.execute(sa_delete(Comment).where(Comment.draft_id.in_(draft_ids)))
     deleted_counts["comments"] = r.rowcount
 
-    r = db.execute(
-        DraftVersion.__table__.delete().where(DraftVersion.organisation_id == org_id)
-    )
-    deleted_counts["versions"] = r.rowcount
+    if version_ids:
+        r = db.execute(sa_delete(DraftVersion).where(DraftVersion.id.in_(version_ids)))
+        deleted_counts["versions"] = r.rowcount
 
-    r = db.execute(
-        Draft.__table__.delete().where(Draft.organisation_id == org_id)
-    )
+    r = db.execute(sa_delete(Draft).where(Draft.organisation_id == org_id))
     deleted_counts["drafts"] = r.rowcount
 
     db.commit()
-
-    log_action(
-        db=db,
-        organisation_id=org_id,
-        user_id=current_user.id,
-        action="purge_all_drafts",
-        entity="organisation",
-        entity_id=org_id,
-        details=deleted_counts,
-    )
 
     return {
         "message": "All draft data purged for this organisation.",
