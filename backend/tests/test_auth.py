@@ -242,16 +242,16 @@ MATRIX_ENDPOINTS = [
     ("POST", "/sources/guidelines", {"admin"}, 422),
     ("POST", "/sources/facts", {"admin"}, 422),
     ("POST", "/sources/terms", {"admin"}, 422),
-    ("POST", "/drafts", {"creator"}, 422),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/review", {"creator"}, 404),
-    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/versions/1/findings", {"creator", "reviewer"}, 404),
-    ("PATCH", "/findings/11111111-1111-1111-1111-111111111111", {"creator"}, 404),
-    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/request-review", {"creator"}, 404),
+    ("POST", "/drafts", {"creator", "admin"}, 422),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/review", {"creator", "admin"}, 404),
+    ("GET", "/drafts/11111111-1111-1111-1111-111111111111/versions/1/findings", {"creator", "reviewer", "admin"}, 404),
+    ("PATCH", "/findings/11111111-1111-1111-1111-111111111111", {"creator", "reviewer", "admin"}, 404),
+    ("POST", "/drafts/11111111-1111-1111-1111-111111111111/request-review", {"creator", "admin"}, 404),
     ("POST", "/drafts/11111111-1111-1111-1111-111111111111/comments", {"creator", "reviewer"}, 422),
     ("POST", "/drafts/11111111-1111-1111-1111-111111111111/decision", {"reviewer"}, 422),
     ("GET", "/drafts/11111111-1111-1111-1111-111111111111/receipt", {"creator", "reviewer", "admin"}, 404),
     ("GET", "/insights/rules", {"reviewer", "admin"}, 200),
-    ("GET", "/audit", {"admin"}, 200),
+    ("GET", "/audit", {"admin", "reviewer"}, 200),
 ]
 
 ROLES = ["creator", "reviewer", "admin"]
