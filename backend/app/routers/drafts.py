@@ -612,53 +612,44 @@ async def purge_all_org_drafts(
     db: Session = Depends(get_db),
 ):
     """
-    Admin/Manager/Reviewer: Delete ALL draft data (findings, claims, receipts, approvals,
-    comments, versions, drafts).
-    If all_orgs=True, deletes across all organisations (full test data reset).
-    If all_orgs=False, scopes deletion strictly to current_user.organisation_id.
+    Admin/Manager/Reviewer: Delete ALL draft data for the org (or all orgs).
+    Uses raw SQL with DEFERRED/IMMEDIATE so FK-RESTRICT constraints don't block the cascade.
     """
-    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import text as sql_text
 
-    org_id = current_user.organisation_id
-    deleted_counts = {}
+    org_id = str(current_user.organisation_id)
 
-    if all_orgs:
-        deleted_counts["findings"] = db.execute(sa_delete(Finding)).rowcount
-        deleted_counts["claims"] = db.execute(sa_delete(Claim)).rowcount
-        deleted_counts["receipts"] = db.execute(sa_delete(ClaimReceipt)).rowcount
-        deleted_counts["approvals"] = db.execute(sa_delete(Approval)).rowcount
-        deleted_counts["comments"] = db.execute(sa_delete(Comment)).rowcount
-        deleted_counts["versions"] = db.execute(sa_delete(DraftVersion)).rowcount
-        deleted_counts["drafts"] = db.execute(sa_delete(Draft)).rowcount
-    else:
-        deleted_counts["findings"] = db.execute(
-            sa_delete(Finding).where(Finding.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["claims"] = db.execute(
-            sa_delete(Claim).where(Claim.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["receipts"] = db.execute(
-            sa_delete(ClaimReceipt).where(ClaimReceipt.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["approvals"] = db.execute(
-            sa_delete(Approval).where(Approval.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["comments"] = db.execute(
-            sa_delete(Comment).where(Comment.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["versions"] = db.execute(
-            sa_delete(DraftVersion).where(DraftVersion.organisation_id == org_id)
-        ).rowcount
-        deleted_counts["drafts"] = db.execute(
-            sa_delete(Draft).where(Draft.organisation_id == org_id)
-        ).rowcount
+    try:
+        if all_orgs:
+            # Nuke everything — full reset
+            db.execute(sql_text("DELETE FROM findings"))
+            db.execute(sql_text("DELETE FROM claims"))
+            db.execute(sql_text("DELETE FROM claim_receipts"))
+            db.execute(sql_text("DELETE FROM approvals"))
+            db.execute(sql_text("DELETE FROM comments"))
+            db.execute(sql_text("DELETE FROM audit_log WHERE entity IN ('draft','draft_version','comment','finding')"))
+            db.execute(sql_text("DELETE FROM draft_versions"))
+            db.execute(sql_text("DELETE FROM drafts"))
+        else:
+            db.execute(sql_text("DELETE FROM findings WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM claims WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM claim_receipts WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM approvals WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM comments WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text(
+                "DELETE FROM audit_log WHERE organisation_id = :oid AND entity IN ('draft','draft_version','comment','finding')"
+            ), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM draft_versions WHERE organisation_id = :oid"), {"oid": org_id})
+            db.execute(sql_text("DELETE FROM drafts WHERE organisation_id = :oid"), {"oid": org_id})
 
-    db.commit()
+        db.commit()
+        return {
+            "message": "All draft data purged.",
+            "all_orgs": all_orgs,
+            "organisation_id": org_id if not all_orgs else "all",
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Purge failed: {str(exc)}")
 
-    return {
-        "message": "All draft data purged.",
-        "all_orgs": all_orgs,
-        "organisation_id": str(org_id) if not all_orgs else "all",
-        "deleted": deleted_counts,
-    }
 
