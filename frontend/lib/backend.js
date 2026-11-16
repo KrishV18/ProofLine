@@ -296,3 +296,61 @@ export async function searchBackendRag(query) {
     return null;
   }
 }
+
+export async function extractPolicyDocument(file) {
+  const token = getBackendToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_URL}/sources/extract-document`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const err = await res.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail || "Failed to extract policy rules from document.");
+  }
+
+  return res.json();
+}
+
+export async function bulkImportSources(data) {
+  return apiRequest("/sources/bulk-import", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchBackendDrafts() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/drafts", { method: "GET" }, token);
+  } catch (err) {
+    console.warn("Failed to fetch backend drafts:", err);
+    return [];
+  }
+}
+
+export async function fetchBackendSources() {
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest("/sources", { method: "GET" }, token);
+  } catch (err) {
+    console.warn("Failed to fetch backend sources:", err);
+    return null;
+  }
+}
+

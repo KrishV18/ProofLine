@@ -25,7 +25,7 @@ class FindingUpdate(BaseModel):
 async def update_finding(
     finding_id: str,
     req: FindingUpdate,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Update the status or dismissal reason of a finding."""

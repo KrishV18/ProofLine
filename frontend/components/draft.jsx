@@ -117,8 +117,40 @@ function Editor({ draft, onSave, onCancel }) {
       <Header
         eyebrow="DRAFT WORKSPACE"
         title={draft ? "Edit draft" : "New draft"}
-        description="Add your copy and tell ProofLine what the draft needs to preserve."
+        description="Add your copy and verify it against company brand guidelines and approved facts."
       />
+
+      {/* ── Visual 3-step progress guide ── */}
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          alignItems: "center",
+          flexWrap: "wrap",
+          marginBottom: "20px",
+          background: "#ffffff",
+          padding: "10px 16px",
+          borderRadius: "14px",
+          border: "1px solid rgba(0, 0, 0, 0.05)",
+          fontSize: "12px",
+          color: "#64748b",
+        }}
+      >
+        <span style={{ fontWeight: 700, color: "#0d9488", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#0d9488", color: "white", display: "grid", placeItems: "center", fontSize: 10 }}>1</span>
+          Write or paste copy
+        </span>
+        <span>→</span>
+        <span style={{ fontWeight: 600, color: "#475569", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#e2e8f0", color: "#475569", display: "grid", placeItems: "center", fontSize: 10 }}>2</span>
+          Run automated checks
+        </span>
+        <span>→</span>
+        <span style={{ fontWeight: 600, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#f1f5f9", color: "#94a3b8", display: "grid", placeItems: "center", fontSize: 10 }}>3</span>
+          Review findings & apply fixes
+        </span>
+      </div>
       <form
         className="editor-grid"
         onSubmit={(event) => {
@@ -233,22 +265,42 @@ function Editor({ draft, onSave, onCancel }) {
             )}
           </div>
         </section>
-        <section className="card section-card intent-card">
+        <section className="card section-card intent-card" style={{ borderRadius: "20px" }}>
           <div className="section-heading">
             <div>
               <div className="heading-icon">
                 <LockKeyhole size={19} />
                 <h2>Intent Lock</h2>
               </div>
-              <p>Capture what should stay the same when you revise the copy.</p>
+              <p>Optional guardrails to protect your core messaging.</p>
             </div>
-            <Badge>Optional</Badge>
+            <Badge tone="neutral">Optional</Badge>
           </div>
           <div className="intent-fields">
+            <div
+              style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: "12px",
+                padding: "10px 12px",
+                fontSize: "12px",
+                color: "#166534",
+                lineHeight: 1.45,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+              }}
+            >
+              <Sparkles size={15} style={{ flexShrink: 0, marginTop: 2, color: "#16a34a" }} />
+              <div>
+                <strong>Why use this?</strong> You can leave these blank. Or fill them in so ProofLine warns you if future edits accidentally dilute your main goal or target reader.
+              </div>
+            </div>
+
             {[
-              ["message", "Message", "What should readers take away?"],
-              ["audience", "Audience", "Who are you writing for?"],
-              ["action", "Call to action", "What should readers do next?"],
+              ["message", "Core message", "e.g. Announce our Starter plan"],
+              ["audience", "Target audience", "e.g. Small business owners"],
+              ["action", "Call to action", "e.g. Sign up for 14-day free trial"],
             ].map(([key, label, placeholder]) => (
               <Field key={key} label={label}>
                 <input
@@ -263,16 +315,30 @@ function Editor({ draft, onSave, onCancel }) {
                 />
               </Field>
             ))}
-            <Button type="submit" icon={Play} disabled={loading}>
-              Run checks
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={loading}
-              onClick={() => save(false)}
-            >
-              Save draft
-            </Button>
+
+            <div style={{ display: "grid", gap: "10px", marginTop: "6px" }}>
+              <Button
+                type="submit"
+                icon={Play}
+                disabled={loading}
+                style={{
+                  minHeight: "44px",
+                  borderRadius: "12px",
+                  fontWeight: 700,
+                  boxShadow: "0 4px 14px rgba(13, 148, 136, 0.25)",
+                }}
+              >
+                Run checks & verify
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={loading}
+                onClick={() => save(false)}
+                style={{ minHeight: "40px", borderRadius: "12px" }}
+              >
+                Save draft without checking
+              </Button>
+            </div>
           </div>
         </section>
       </form>
@@ -573,8 +639,7 @@ export function DraftScreen({
   const [version, setVersion] = useState(null);
   const [receiptVersion, setReceiptVersion] = useState(null);
   const manager = role === "manager";
-  const editable =
-    !manager && ["draft", "changes", "recheck"].includes(draft?.status);
+  const editable = ["draft", "changes", "recheck"].includes(draft?.status);
   const reviewable = manager && draft?.status === "review" && draft.checked;
   const blockerCount = draft ? blockers(draft).length : 0;
   const needsLegal = draft?.risk === "High" && !draft.legal;

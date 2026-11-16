@@ -5,12 +5,15 @@ import {
   Bell,
   BookOpen,
   ChartNoAxesColumn,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   FileText,
   House,
   ListChecks,
   LogOut,
   PanelLeft,
+  Search,
 } from "lucide-react";
 import {
   blockers,
@@ -25,6 +28,8 @@ import {
 import {
   checkBackendHealth,
   clearBackendToken,
+  fetchBackendDrafts,
+  fetchBackendSources,
   getBackendToken,
   getStoredUser,
   runBackendReview,
@@ -77,6 +82,24 @@ export default function Workspace() {
   const [storageWarning, setStorageWarning] = useState(false);
   const [backendLive, setBackendLive] = useState(false);
   const [aiReviewing, setAiReviewing] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("proofline.sidebar.collapsed");
+      if (saved === "true") setSidebarCollapsed(true);
+    } catch {}
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("proofline.sidebar.collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }
 
   // Init: restore session, check backend health
   useEffect(() => {
@@ -93,7 +116,8 @@ export default function Workspace() {
       setData(saved ? JSON.parse(saved) : seedWorkspace());
 
       if (storedUser && getBackendToken()) {
-        const uiRole = storedUser.role === "manager" ? "manager" : "writer";
+        const isMgr = storedUser.role === "manager" || storedUser.role === "reviewer" || storedUser.role === "admin";
+        const uiRole = isMgr ? "manager" : "writer";
         setRole(uiRole);
         setUserProfile(storedUser);
       } else {
@@ -124,6 +148,192 @@ export default function Workspace() {
     return () => window.removeEventListener("storage", refresh);
   }, [workspaceKey]);
 
+  // Automatic hydration pass from backend (Loophole 3)
+  useEffect(() => {
+    const token = getBackendToken();
+    if (!backendLive || !token) return;
+
+    let cancelled = false;
+
+    async function hydrate() {
+      try {
+        const [remoteDrafts, remoteSources] = await Promise.all([
+          fetchBackendDrafts(),
+          fetchBackendSources(),
+        ]);
+
+        if (cancelled || !remoteDrafts) return;
+
+        setData((prev) => {
+          if (!prev) return prev;
+          let nextDrafts = [...prev.drafts];
+
+          if (remoteDrafts.length > 0) {
+            const isMockSeed = prev.drafts.every(
+              (d) =>
+                d.id === "summer-launch" ||
+                d.id === "product-refresh" ||
+                d.id === "launch-announcement" ||
+                d.id === "november-newsletter"
+            );
+
+            const mappedRemote = remoteDrafts.map((d) => {
+              const existing = prev.drafts.find(
+                (loc) => loc.backendId === d.id || loc.id === d.id
+              );
+              if (existing) {
+                return {
+                  ...existing,
+                  backendId: d.id,
+                  title: d.title || existing.title,
+                  text: d.content || existing.text,
+                  channel: d.channel || existing.channel,
+                  status: d.status || existing.status,
+                  version: d.latest_version || existing.version,
+                  intent:
+                    d.intent_lock && Object.keys(d.intent_lock).length
+                      ? d.intent_lock
+                      : existing.intent,
+                };
+              }
+              return {
+                id: d.id,
+                backendId: d.id,
+                title: d.title || "Untitled Draft",
+                text: d.content || "",
+                channel: d.channel || "Email",
+                intent: d.intent_lock || { message: "", audience: "", action: "" },
+                visual: { foreground: "", background: "" },
+                attachment: "",
+                status: d.status || "draft",
+                version: d.latest_version || 1,
+                versions: [
+                  {
+                    version: d.latest_version || 1,
+                    text: d.content || "",
+                    findings: 0,
+                    date: d.created_at || new Date().toISOString(),
+                    note: "Initial version",
+                  },
+                ],
+                checked: d.status !== "draft",
+                findings: [],
+                claims: [],
+                risk: "Low",
+                comments: [],
+                receipt:
+                  d.status === "approved" || d.status === "published"
+                    ? {
+                        version: d.latest_version || 1,
+                        claims: [],
+                        date: d.created_at || new Date().toISOString(),
+                        approver: "Manager",
+                      }
+                    : null,
+                legal: "",
+                updated: d.created_at || new Date().toISOString(),
+              };
+            });
+
+            if (isMockSeed) {
+              nextDrafts = mappedRemote;
+            } else {
+              const remoteIds = new Set(mappedRemote.map((m) => m.id));
+              const localKept = prev.drafts.filter(
+                (loc) => !remoteIds.has(loc.id) && !remoteIds.has(loc.backendId)
+              );
+              nextDrafts = [...mappedRemote, ...localKept];
+            }
+          }
+
+          let nextSources = [...prev.sources];
+          if (remoteSources) {
+            const existingKeys = new Set(prev.sources.map((s) => s.id));
+            const newBackendSources = [];
+
+            (remoteSources.guidelines || []).forEach((g) => {
+              const sId = g.rule_id || g.id;
+              if (!existingKeys.has(sId)) {
+                existingKeys.add(sId);
+                newBackendSources.push({
+                  id: sId,
+                  backendId: g.id,
+                  type: "Guidelines",
+                  check: g.category || "tone",
+                  title: (g.text || "").slice(0, 50),
+                  source: "Company Policy",
+                  owner: "Brand",
+                  version: g.version || 1,
+                  text: g.text || "",
+                });
+              }
+            });
+
+            (remoteSources.facts || []).forEach((f) => {
+              const sId = f.fact_key || f.id;
+              if (!existingKeys.has(sId)) {
+                existingKeys.add(sId);
+                newBackendSources.push({
+                  id: sId,
+                  backendId: f.id,
+                  type: "Approved facts",
+                  title: (f.statement || f.fact_key || "").slice(0, 50),
+                  source: f.source || "Fact Ledger",
+                  owner: f.owner || "Company",
+                  version: f.version || 1,
+                  value: f.value || "",
+                  text: f.statement || "",
+                  expires: f.expires_on || "2027-12-31",
+                  keyword: f.fact_key || "",
+                });
+              }
+            });
+
+            (remoteSources.terms || []).forEach((t) => {
+              const sId = t.id;
+              if (!existingKeys.has(sId)) {
+                existingKeys.add(sId);
+                newBackendSources.push({
+                  id: sId,
+                  backendId: t.id,
+                  type: "Terminology",
+                  title: t.preferred ? `Use "${t.preferred}"` : t.term,
+                  source: "Brand Guide",
+                  owner: "Brand",
+                  version: t.version || 1,
+                  keyword: t.term,
+                  value: t.preferred || "",
+                  text:
+                    t.notes ||
+                    (t.banned
+                      ? `Do not use "${t.term}". Prefer "${t.preferred || ""}".`
+                      : `Approved term: "${t.term}"`),
+                });
+              }
+            });
+
+            if (newBackendSources.length > 0) {
+              nextSources = [...prev.sources, ...newBackendSources];
+            }
+          }
+
+          const nextState = { ...prev, drafts: nextDrafts, sources: nextSources };
+          try {
+            localStorage.setItem(workspaceKey, JSON.stringify(nextState));
+          } catch {}
+          return nextState;
+        });
+      } catch (e) {
+        console.warn("Hydration failed:", e);
+      }
+    }
+
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendLive, workspaceKey, userProfile]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -141,7 +351,8 @@ export default function Workspace() {
     try {
       if (value && typeof value === "object" && value.role) {
         // Real login: value is a user profile object from backend
-        const uiRole = value.role === "manager" ? "manager" : "writer";
+        const isMgr = value.role === "manager" || value.role === "reviewer" || value.role === "admin";
+        const uiRole = isMgr ? "manager" : "writer";
         const userId = value.id;
         const key = userId ? `${demoWorkspaceKey}.${userId}` : demoWorkspaceKey;
         setWorkspaceKey(key);
@@ -315,6 +526,20 @@ export default function Workspace() {
     next.versions = [...draft.versions, versionOf(next, note)];
     return next;
   }
+  function bulkAddSources(newEntries, filename) {
+    if (!newEntries || !newEntries.length) return;
+    const nextSources = [...newEntries, ...data.sources];
+    commit(
+      addEvent(
+        { ...data, sources: nextSources },
+        "Imported policy rules",
+        filename ? `from ${filename}` : `${newEntries.length} items`,
+        { count: newEntries.length, filename }
+      ),
+      `Imported ${newEntries.length} items from ${filename || "document"}`
+    );
+  }
+
   function saveSource(values, existing) {
     const entry = {
       ...values,
@@ -415,8 +640,7 @@ export default function Workspace() {
   const navigation = role === "writer" ? writerNav : managerNav;
   const [page, id] = route;
   const candidate = data.drafts.find((item) => item.id === id);
-  const draft =
-    role === "manager" && candidate?.status === "draft" ? null : candidate;
+  const draft = candidate;
   const allowed = page === "draft" || navigation.some(([key]) => key === page);
   const activePage = allowed && page ? page : "home";
   const activeNav =
@@ -435,7 +659,7 @@ export default function Workspace() {
         <DraftScreen
           key={id}
           draft={draft}
-          newDraft={id === "new" && role === "writer"}
+          newDraft={id === "new"}
           role={role}
           aiReviewing={aiReviewing}
           onBack={() => go(activeNav)}
@@ -583,7 +807,12 @@ export default function Workspace() {
       break;
     case "library":
       content = (
-        <Library sources={data.sources} role={role} onSave={saveSource} />
+        <Library
+          sources={data.sources}
+          role={role}
+          onSave={saveSource}
+          onBulkImport={bulkAddSources}
+        />
       );
       break;
     case "insights":
@@ -634,8 +863,15 @@ export default function Workspace() {
       );
   }
 
+  /* Split manager nav: first 4 items under WORKSPACE, last 2 (alerts, audit) under TOOLS */
+  const mainNav = role === "manager" ? navigation.slice(0, 4) : navigation;
+  const toolsNav = role === "manager" ? navigation.slice(4) : [];
+
+  /* Resolve current page label for the top bar breadcrumb */
+  const currentPageLabel = navigation.find(([key]) => key === activeNav)?.[1] || "Home";
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <a
         className="skip-link"
         href="#main"
@@ -660,25 +896,49 @@ export default function Workspace() {
       </div>
       <aside
         id="sidebar"
-        className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}
+        className={`sidebar ${sidebarCollapsed ? "is-collapsed" : ""} ${mobileOpen ? "sidebar-open" : ""}`}
       >
-        <a href="#home" className="sidebar-logo" onClick={() => go("home")}>
-          <Wordmark />
-        </a>
-        <div className="workspace-label">
+        {/* ── Sidebar Top Header & Morph Toggle Button ── */}
+        <div className="sidebar-header">
+          <a href="#home" className="sidebar-logo" onClick={() => go("home")}>
+            <Wordmark collapsed={sidebarCollapsed} />
+          </a>
+          <button
+            type="button"
+            className="sidebar-toggle-btn"
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight size={16} strokeWidth={2.2} />
+            ) : (
+              <ChevronLeft size={16} strokeWidth={2.2} />
+            )}
+          </button>
+        </div>
+
+        {/* ── Workspace Pill ── */}
+        <div
+          className="workspace-label"
+          title={userProfile?.organisation_name || "Studio North"}
+        >
           <span className="workspace-avatar">
             {userProfile?.organisation_name
               ? userProfile.organisation_name.slice(0, 2).toUpperCase()
               : "SN"}
           </span>
-          <span>
+          <span className="workspace-label-text">
             <strong>{userProfile?.organisation_name || "Studio North"}</strong>
             <small>Brand workspace</small>
           </span>
         </div>
+
+        {/* ── Main Workspace Navigation ── */}
         <p className="nav-label">WORKSPACE</p>
+        <div className="sidebar-divider" />
         <nav className="sidebar-links" aria-label="Main navigation">
-          {navigation.map(([key, label, Icon]) => (
+          {mainNav.map(([key, label, Icon]) => (
             <a
               href={`#${key}`}
               key={key}
@@ -686,44 +946,135 @@ export default function Workspace() {
               className={activeNav === key ? "active" : ""}
               onClick={() => go(key)}
             >
-              <Icon size={18} />
-              {label}
-              {key === "alerts" &&
-                data.alerts.some((alert) => !alert.resolved) && (
-                  <span className="nav-dot" />
-                )}
+              <Icon size={18} strokeWidth={1.8} />
+              <span className="sidebar-nav-text">{label}</span>
+              {sidebarCollapsed && (
+                <span className="sidebar-tooltip">{label}</span>
+              )}
             </a>
           ))}
         </nav>
+
+        {/* ── Tools Navigation ── */}
+        {toolsNav.length > 0 && (
+          <>
+            <div style={{ height: 16 }} />
+            <p className="nav-label">TOOLS</p>
+            <div className="sidebar-divider" />
+            <nav className="sidebar-links" aria-label="Tools navigation">
+              {toolsNav.map(([key, label, Icon]) => (
+                <a
+                  href={`#${key}`}
+                  key={key}
+                  aria-current={activeNav === key ? "page" : undefined}
+                  className={activeNav === key ? "active" : ""}
+                  onClick={() => go(key)}
+                >
+                  <Icon size={18} strokeWidth={1.8} />
+                  <span className="sidebar-nav-text">{label}</span>
+                  {sidebarCollapsed && (
+                    <span className="sidebar-tooltip">{label}</span>
+                  )}
+                  {key === "alerts" &&
+                    data.alerts.some((alert) => !alert.resolved) && (
+                      <span className="nav-dot" />
+                    )}
+                </a>
+              ))}
+            </nav>
+          </>
+        )}
+
+        {/* ── Sidebar Footer / User Profile ── */}
         <div className="sidebar-footer">
-          <div>
-            <span className="profile-initial">
+          <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+            <span
+              className="profile-initial"
+              title={userProfile?.full_name || roles[role]}
+            >
               {userProfile?.full_name
                 ? userProfile.full_name.slice(0, 2).toUpperCase()
                 : role === "writer" ? "CW" : "M"}
             </span>
-            <span>
+            <div className="sidebar-footer-info">
               <strong>{userProfile?.full_name || roles[role]}</strong>
               <small>
                 {userProfile
                   ? (userProfile.role.charAt(0).toUpperCase() + userProfile.role.slice(1)) +
-                    (backendLive ? " · Connected" : "")
-                  : backendLive ? "Connected · Groq API" : "Local demo mode"}
+                    (backendLive ? " · Live" : "")
+                  : backendLive ? "Connected" : "Offline"}
               </small>
-            </span>
+            </div>
           </div>
           <button
             type="button"
             className="icon-button"
             aria-label="Sign out"
             title="Sign out"
+            style={{ width: 32, height: 32, borderRadius: 8 }}
             onClick={() => changeRole(null)}
           >
-            <LogOut size={18} />
+            <LogOut size={16} strokeWidth={1.8} />
           </button>
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="main">
+        {/* ── Apple/iOS-style Top Control Bar ── */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "14px 32px",
+            background: "#ffffff",
+            borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <span style={{ fontSize: "15px", fontWeight: 700, color: "#1e293b", letterSpacing: "-0.01em" }}>
+              {currentPageLabel}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            {/* Profile Avatar & Company Badge */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "#f8fafc",
+                padding: "4px 12px 4px 6px",
+                borderRadius: "100px",
+                border: "1px solid #e2e8f0",
+                fontSize: "12px",
+              }}
+            >
+              <span
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  background: "#0d9488",
+                  color: "white",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                {userProfile?.full_name ? userProfile.full_name.charAt(0).toUpperCase() : "U"}
+              </span>
+              <span style={{ fontWeight: 600, color: "#334155" }}>
+                {userProfile?.organisation_name || "Studio North"}
+              </span>
+            </div>
+          </div>
+        </div>
         <div className="page">
           {storageWarning && (
             <p className="callout">

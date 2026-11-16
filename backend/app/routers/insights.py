@@ -15,7 +15,7 @@ router = APIRouter(prefix="/insights", tags=["insights"])
 
 @router.get("/rules")
 async def get_rule_performance(
-    current_user: User = Depends(require_role("reviewer", "admin")),
+    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Get rule performance analytics (most triggered rules, acceptance rates, health scores)."""
