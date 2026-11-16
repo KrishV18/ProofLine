@@ -98,7 +98,7 @@ export default function Workspace() {
       setData({ drafts: [], sources: [], events: [], alerts: [] });
 
       if (storedUser && getBackendToken()) {
-        const uiRole = storedUser.role === "manager" ? "manager" : "writer";
+        const uiRole = (storedUser.role === "manager" || storedUser.role === "reviewer") ? "manager" : "writer";
         setRole(uiRole);
         setUserProfile(storedUser);
         // Async hydration from DB
@@ -163,7 +163,7 @@ export default function Workspace() {
     try {
       if (value && typeof value === "object" && value.role) {
         // Real login: value is a user profile object from backend
-        const uiRole = value.role === "manager" ? "manager" : "writer";
+        const uiRole = (value.role === "manager" || value.role === "reviewer") ? "manager" : "writer";
         const userId = value.id;
         const key = userId ? `${demoWorkspaceKey}.${userId}` : demoWorkspaceKey;
         setWorkspaceKey(key);
