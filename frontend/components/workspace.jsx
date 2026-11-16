@@ -25,6 +25,7 @@ import {
 import {
   checkBackendHealth,
   clearBackendToken,
+  createBackendDraft,
   fetchBackendDraft,
   fetchBackendDrafts,
   getBackendToken,
@@ -537,7 +538,23 @@ export default function Workspace() {
               run ? "Content checks complete" : "Draft saved",
               run ? { sources: evidenceOf(next) } : undefined
             );
-            if (run) enrichWithLiveAI(saved);
+            if (run) {
+              enrichWithLiveAI(saved);
+            } else if (!saved.backendId) {
+              createBackendDraft(saved).then((created) => {
+                if (created?.id) {
+                  setData((prev) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      drafts: prev.drafts.map((d) =>
+                        d.id === saved.id ? { ...d, backendId: created.id } : d
+                      ),
+                    };
+                  });
+                }
+              }).catch(() => {});
+            }
             if (!draft) openDraft(saved.id);
             return saved;
           }}
@@ -599,15 +616,22 @@ export default function Workspace() {
               { sourceId: finding.source.id, sources: [finding.source], note }
             )
           }
-          onSubmit={(note) => {
+          onSubmit={async (note) => {
+            let backendId = draft.backendId;
+            if (!backendId) {
+              const created = await createBackendDraft(draft);
+              if (created?.id) {
+                backendId = created.id;
+              }
+            }
             saveDraft(
-              { ...draft, status: "review", submissionNote: note, legal: "" },
+              { ...draft, backendId, status: "review", submissionNote: note, legal: "" },
               "Requested review",
               "Draft sent to the manager",
               { note }
             );
-            if (draft.backendId) {
-              requestBackendHumanReview(draft.backendId);
+            if (backendId) {
+              requestBackendHumanReview(backendId);
             }
           }}
           onComment={(note, quote, changes) => {

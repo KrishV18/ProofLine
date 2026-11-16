@@ -352,6 +352,30 @@ export async function requestBackendHumanReview(backendDraftId) {
   }
 }
 
+/** Create a new draft in the backend database scoped to the user's organisation. */
+export async function createBackendDraft(draft) {
+  const token = getBackendToken();
+  if (!token) return null;
+  try {
+    return await apiRequest(
+      "/drafts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: draft.title || "Untitled Draft",
+          content: draft.text || "",
+          channel: draft.channel || "Email",
+          intent_lock: draft.intent || {},
+        }),
+      },
+      token
+    );
+  } catch (err) {
+    console.warn("createBackendDraft failed:", err);
+    return null;
+  }
+}
+
 /** Fetch a single draft's full details (title, content, status, intent_lock). */
 export async function fetchBackendDraft(draftId) {
   try {
