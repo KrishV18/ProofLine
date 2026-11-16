@@ -296,3 +296,58 @@ export async function searchBackendRag(query) {
     return null;
   }
 }
+
+export async function fetchBackendDrafts() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/drafts", { method: "GET" }, token);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchBackendSources() {
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest("/sources", { method: "GET" }, token);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchBackendAudit() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/audit", { method: "GET" }, token);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchBackendInsights() {
+  try {
+    const token = getBackendToken();
+    if (!token) return [];
+    return await apiRequest("/insights/rules", { method: "GET" }, token);
+  } catch {
+    return [];
+  }
+}
+
+export async function requestBackendHumanReview(backendDraftId) {
+  if (!backendDraftId) return null;
+  try {
+    const token = getBackendToken();
+    if (!token) return null;
+    return await apiRequest(
+      `/drafts/${backendDraftId}/request-review`,
+      { method: "POST" },
+      token
+    );
+  } catch {
+    return null;
+  }
+}

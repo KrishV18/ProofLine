@@ -43,7 +43,7 @@ class TermCreate(BaseModel):
 
 @router.get("")
 async def list_sources(
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """List all active sources (guidelines, facts, terminology) for the organisation."""
@@ -112,7 +112,7 @@ async def list_sources(
 @router.post("/guidelines", status_code=status.HTTP_201_CREATED)
 async def create_guideline(
     req: GuidelineCreate,
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned guideline rule for the organisation."""
@@ -165,7 +165,7 @@ async def create_guideline(
 @router.post("/facts", status_code=status.HTTP_201_CREATED)
 async def create_fact(
     req: FactCreate,
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned fact entry for the organisation."""
@@ -225,7 +225,7 @@ async def create_fact(
 @router.post("/terms", status_code=status.HTTP_201_CREATED)
 async def create_term(
     req: TermCreate,
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned terminology entry for the organisation."""
@@ -277,7 +277,7 @@ async def create_term(
 
 @router.post("/seed")
 async def seed_sources(
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Seed sample data from sample-data directory into database."""
@@ -288,7 +288,7 @@ async def seed_sources(
 async def rag_search(
     query: str,
     top_k: int = 5,
-    current_user: User = Depends(require_role("creator", "reviewer", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
 ):
     """Search Dhruv's ingested RAG knowledge records for relevant evidence."""
     from app.services.rag.lexical import search_rag_knowledge

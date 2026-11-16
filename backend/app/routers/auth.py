@@ -209,19 +209,31 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
             detail="An account with this email already exists",
         )
 
-    # Create org
-    org = Organisation(name=req.company_name.strip())
-    db.add(org)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A company with this name already exists",
-        )
+    # Look up existing company or create a new one
+    company_name = req.company_name.strip()
+    existing_org = db.scalars(
+        select(Organisation).where(Organisation.name.ilike(company_name))
+    ).first()
 
-    # Create first user
+    if existing_org:
+        org = existing_org
+    else:
+        org = Organisation(name=company_name)
+        db.add(org)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            org = db.scalars(
+                select(Organisation).where(Organisation.name.ilike(company_name))
+            ).first()
+            if not org:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Could not create company workspace",
+                )
+
+    # Create user for this company
     user = User(
         id=uuid.uuid4(),
         email=email,

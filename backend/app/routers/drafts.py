@@ -68,7 +68,7 @@ def _content_hash(content: str) -> str:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_draft(
     req: DraftCreateRequest,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Create a new draft with initial version 1."""
@@ -122,7 +122,7 @@ async def create_draft(
 async def upload_document_draft(
     file: UploadFile = File(...),
     channel: Optional[str] = None,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, DOCX, or text file and automatically create a new draft."""
@@ -250,7 +250,7 @@ async def get_draft(
 async def create_draft_version(
     draft_id: str,
     req: DraftVersionCreateRequest,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Create a new immutable version for an existing draft."""
@@ -297,7 +297,7 @@ async def create_draft_version(
 @router.post("/{draft_id}/review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Trigger automated 4-layer review of draft's latest version."""
@@ -434,7 +434,7 @@ async def compute_diff(
 @router.post("/{draft_id}/request-review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_request_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator")),
+    current_user: User = Depends(require_role("creator", "manager", "admin")),
     db: Session = Depends(get_db),
 ):
     """Request human review of the draft, evaluating risk tier."""

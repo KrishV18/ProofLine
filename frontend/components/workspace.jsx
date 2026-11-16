@@ -27,6 +27,7 @@ import {
   clearBackendToken,
   getBackendToken,
   getStoredUser,
+  requestBackendHumanReview,
   runBackendReview,
   syncBackendDecision,
 } from "../lib/backend";
@@ -527,14 +528,17 @@ export default function Workspace() {
               { sourceId: finding.source.id, sources: [finding.source], note }
             )
           }
-          onSubmit={(note) =>
+          onSubmit={(note) => {
             saveDraft(
               { ...draft, status: "review", submissionNote: note, legal: "" },
               "Requested review",
               "Draft sent to the manager",
               { note }
-            )
-          }
+            );
+            if (draft.backendId) {
+              requestBackendHumanReview(draft.backendId);
+            }
+          }}
           onComment={(note, quote, changes) => {
             const comments = [
               ...draft.comments,
