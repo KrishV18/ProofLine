@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class UserBase(BaseModel):
     email: str
-    role: Literal["creator", "reviewer", "admin"]
+    role: Literal["creator", "reviewer", "manager", "admin"]
 
 
 class UserCreate(UserBase):

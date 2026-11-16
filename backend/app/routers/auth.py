@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -77,7 +77,7 @@ class CompanyItem(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-ALLOWED_ROLES = {"creator", "manager"}
+ALLOWED_ROLES = {"creator", "reviewer", "manager", "admin"}
 
 
 def _build_user_profile(user: User, org_name: str | None) -> dict:
@@ -209,31 +209,35 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
             detail="An account with this email already exists",
         )
 
-    # Look up existing company or create a new one
+    # Find existing organisation or create a new one
     company_name = req.company_name.strip()
-    existing_org = db.scalars(
-        select(Organisation).where(Organisation.name.ilike(company_name))
+    org = db.scalars(
+        select(Organisation).where(
+            func.lower(Organisation.name) == func.lower(company_name)
+        )
     ).first()
 
-    if existing_org:
-        org = existing_org
-    else:
+    is_new_org = False
+    if not org:
         org = Organisation(name=company_name)
         db.add(org)
         try:
             db.flush()
+            is_new_org = True
         except IntegrityError:
             db.rollback()
             org = db.scalars(
-                select(Organisation).where(Organisation.name.ilike(company_name))
+                select(Organisation).where(
+                    func.lower(Organisation.name) == func.lower(company_name)
+                )
             ).first()
             if not org:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="Could not create company workspace",
+                    detail="A company with this name already exists",
                 )
 
-    # Create user for this company
+    # Create user linked to organisation
     user = User(
         id=uuid.uuid4(),
         email=email,
@@ -258,7 +262,7 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
         db=db,
         organisation_id=org.id,
         user_id=user.id,
-        action="company_registered",
+        action="company_registered" if is_new_org else "user_joined_company",
         entity="organisation",
         entity_id=org.id,
         details={"company_name": org.name, "email": email, "role": role},

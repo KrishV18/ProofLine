@@ -22,6 +22,33 @@ def parse_docx(content: bytes) -> str:
     return "\n\n".join(full_text)
 
 
+def parse_pptx(content: bytes) -> str:
+    """Extract plain text from PowerPoint (.pptx) file bytes."""
+    from pptx import Presentation
+
+    file_obj = io.BytesIO(content)
+    prs = Presentation(file_obj)
+    slides_text = []
+
+    for idx, slide in enumerate(prs.slides, 1):
+        slide_parts = [f"--- Slide {idx} ---"]
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    text = paragraph.text.strip()
+                    if text:
+                        slide_parts.append(text)
+            elif shape.has_table:
+                for row in shape.table.rows:
+                    row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_text:
+                        slide_parts.append(" | ".join(row_text))
+        if len(slide_parts) > 1:
+            slides_text.append("\n".join(slide_parts))
+
+    return "\n\n".join(slides_text)
+
+
 def parse_pdf(content: bytes) -> str:
     """Extract plain text from PDF file bytes."""
     # Try pypdf first
@@ -60,6 +87,8 @@ def parse_document(filename: str, content: bytes) -> Tuple[str, str]:
     lower_name = filename.lower()
     if lower_name.endswith(".docx"):
         return parse_docx(content), "docx"
+    elif lower_name.endswith((".pptx", ".ppt")):
+        return parse_pptx(content), "pptx"
     elif lower_name.endswith(".pdf"):
         return parse_pdf(content), "pdf"
     elif lower_name.endswith((".txt", ".md", ".json", ".csv")):

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -8,9 +8,12 @@ import {
   Check,
   FileText,
   History,
+  Loader2,
   Plus,
   Search,
+  Sparkles,
   TriangleAlert,
+  UploadCloud,
 } from "lucide-react";
 import {
   formatDate,
@@ -20,6 +23,7 @@ import {
   sourceLabel,
   statuses,
 } from "../lib/workflow.mjs";
+import { extractPolicyDocument, bulkImportSources } from "../lib/backend";
 import { Badge, Button, Empty, Field, Header, Modal, Tabs } from "./ui";
 
 const singular = {
@@ -192,12 +196,335 @@ function SourceEditor({ source, type, onSave, onClose }) {
     </Modal>
   );
 }
-export function Library({ sources, role, onSave }) {
+function PolicyDocumentImporter({ onClose, onImportSuccess }) {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [extracted, setExtracted] = useState(null);
+  const [activeTab, setActiveTab] = useState("Guidelines");
+  const [selectedGuidelines, setSelectedGuidelines] = useState(new Set());
+  const [selectedFacts, setSelectedFacts] = useState(new Set());
+  const [selectedTerms, setSelectedTerms] = useState(new Set());
+  const fileInputRef = useRef(null);
+
+  async function handleFileSelected(selectedFile) {
+    if (!selectedFile) return;
+    setFile(selectedFile);
+    setError("");
+    setLoading(true);
+    try {
+      const data = await extractPolicyDocument(selectedFile);
+      setExtracted(data);
+      // Select all by default
+      setSelectedGuidelines(new Set(data.guidelines.map((_, i) => i)));
+      setSelectedFacts(new Set(data.facts.map((_, i) => i)));
+      setSelectedTerms(new Set(data.terms.map((_, i) => i)));
+      if (!data.guidelines.length && data.facts.length) {
+        setActiveTab("Facts");
+      } else if (!data.guidelines.length && !data.facts.length && data.terms.length) {
+        setActiveTab("Terminology");
+      }
+    } catch (err) {
+      setError(err.message || "Failed to parse document rules.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!extracted) return;
+    const chosenGuidelines = extracted.guidelines.filter((_, i) => selectedGuidelines.has(i));
+    const chosenFacts = extracted.facts.filter((_, i) => selectedFacts.has(i));
+    const chosenTerms = extracted.terms.filter((_, i) => selectedTerms.has(i));
+
+    if (!chosenGuidelines.length && !chosenFacts.length && !chosenTerms.length) {
+      setError("Please select at least one item to import.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await bulkImportSources({
+        guidelines: chosenGuidelines.map((g) => ({
+          rule_id: g.rule_id,
+          text: g.rule_text,
+          category: g.category,
+        })),
+        facts: chosenFacts.map((f) => ({
+          fact_key: f.fact_key,
+          statement: f.statement,
+          value: f.value || "",
+          owner: f.owner || "Policy Document",
+          source: file?.name || "Document Import",
+          expires_on: f.expires_on || null,
+        })),
+        terms: chosenTerms.map((t) => ({
+          term: t.term,
+          preferred: t.preferred,
+          banned: t.banned,
+          notes: t.notes || "",
+        })),
+      });
+
+      const newLocalSources = [
+        ...chosenGuidelines.map((g) => ({
+          id: g.rule_id,
+          type: "Guidelines",
+          check: "tone",
+          title: g.rule_text.slice(0, 50),
+          source: file?.name || "Imported Policy",
+          owner: "Brand",
+          version: 1,
+          text: g.rule_text,
+          severity: g.severity,
+        })),
+        ...chosenFacts.map((f) => ({
+          id: f.fact_key,
+          type: "Approved facts",
+          title: f.statement.slice(0, 50),
+          source: file?.name || "Imported Policy",
+          owner: f.owner || "Company",
+          version: 1,
+          value: f.value || "",
+          text: f.statement,
+          expires: f.expires_on || "2027-12-31",
+        })),
+        ...chosenTerms.map((t) => ({
+          id: `TERM-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+          type: "Terminology",
+          title: t.preferred ? `Use "${t.preferred}"` : t.term,
+          source: file?.name || "Imported Policy",
+          owner: "Brand",
+          version: 1,
+          keyword: t.term,
+          value: t.preferred || t.term,
+          text: t.notes || (t.banned ? `Do not use "${t.term}". Prefer "${t.preferred}".` : `Approved term: "${t.term}"`),
+        })),
+      ];
+
+      if (onImportSuccess) {
+        onImportSuccess(newLocalSources, file?.name);
+      }
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to save imported sources.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totalSelected = selectedGuidelines.size + selectedFacts.size + selectedTerms.size;
+
+  return (
+    <Modal title="Import Policy Document" className="wide-modal" onClose={onClose}>
+      <div className="importer-body">
+        {!extracted && !loading && (
+          <div className="upload-panel">
+            <UploadCloud size={32} />
+            <strong>Upload Company Guidelines Document</strong>
+            <p>Upload any PDF, Word (.docx), PowerPoint (.pptx), or text file containing your company's rules, brand guidelines, facts, or terminology.</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.pptx,.ppt,.txt,.md"
+              style={{ display: "none" }}
+              onChange={(e) => handleFileSelected(e.target.files?.[0])}
+            />
+            <Button
+              type="button"
+              icon={Sparkles}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Choose document & extract rules
+            </Button>
+          </div>
+        )}
+
+        {loading && (
+          <div className="importer-loading">
+            <Loader2 size={32} className="spin" />
+            <strong>AI Extraction Bot Running…</strong>
+            <p className="callout compact">
+              Analyzing {file?.name}: extracting actionable guidelines, verified facts, and brand terminology into structured JSON…
+            </p>
+          </div>
+        )}
+
+        {extracted && !loading && (
+          <>
+            <div className="importer-summary">
+              <Sparkles size={18} />
+              <span>
+                <strong>{file?.name}</strong>: {extracted.summary}
+              </span>
+            </div>
+
+            <div className="toolbar" style={{ marginTop: 4 }}>
+              <Tabs
+                items={[
+                  `Guidelines (${extracted.guidelines.length})`,
+                  `Facts (${extracted.facts.length})`,
+                  `Terminology (${extracted.terms.length})`,
+                ]}
+                value={
+                  activeTab === "Guidelines"
+                    ? `Guidelines (${extracted.guidelines.length})`
+                    : activeTab === "Facts"
+                    ? `Facts (${extracted.facts.length})`
+                    : `Terminology (${extracted.terms.length})`
+                }
+                onChange={(val) => {
+                  if (val.startsWith("Guidelines")) setActiveTab("Guidelines");
+                  else if (val.startsWith("Facts")) setActiveTab("Facts");
+                  else setActiveTab("Terminology");
+                }}
+                label="Extracted tabs"
+              />
+            </div>
+
+            {activeTab === "Guidelines" && (
+              <div className="importer-list">
+                {!extracted.guidelines.length ? (
+                  <p className="callout compact">No guidelines found in this document.</p>
+                ) : (
+                  extracted.guidelines.map((g, idx) => {
+                    const checked = selectedGuidelines.has(idx);
+                    return (
+                      <label key={idx} className="importer-item">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = new Set(selectedGuidelines);
+                            if (e.target.checked) next.add(idx);
+                            else next.delete(idx);
+                            setSelectedGuidelines(next);
+                          }}
+                        />
+                        <div className="importer-item-content">
+                          <div className="importer-badges">
+                            <Badge>{g.rule_id}</Badge>
+                            <Badge tone="blue">{g.category}</Badge>
+                            <Badge tone={g.severity === "blocker" ? "red" : g.severity === "warning" ? "amber" : "neutral"}>
+                              {g.severity}
+                            </Badge>
+                          </div>
+                          <div>{g.rule_text}</div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {activeTab === "Facts" && (
+              <div className="importer-list">
+                {!extracted.facts.length ? (
+                  <p className="callout compact">No facts found in this document.</p>
+                ) : (
+                  extracted.facts.map((f, idx) => {
+                    const checked = selectedFacts.has(idx);
+                    return (
+                      <label key={idx} className="importer-item">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = new Set(selectedFacts);
+                            if (e.target.checked) next.add(idx);
+                            else next.delete(idx);
+                            setSelectedFacts(next);
+                          }}
+                        />
+                        <div className="importer-item-content">
+                          <div className="importer-badges">
+                            <Badge>{f.fact_key}</Badge>
+                            {f.value && <Badge tone="green">{f.value}</Badge>}
+                            {f.owner && <Badge tone="neutral">{f.owner}</Badge>}
+                          </div>
+                          <div>{f.statement}</div>
+                          {f.expires_on && <small>Expires: {f.expires_on}</small>}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {activeTab === "Terminology" && (
+              <div className="importer-list">
+                {!extracted.terms.length ? (
+                  <p className="callout compact">No terminology rules found in this document.</p>
+                ) : (
+                  extracted.terms.map((t, idx) => {
+                    const checked = selectedTerms.has(idx);
+                    return (
+                      <label key={idx} className="importer-item">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = new Set(selectedTerms);
+                            if (e.target.checked) next.add(idx);
+                            else next.delete(idx);
+                            setSelectedTerms(next);
+                          }}
+                        />
+                        <div className="importer-item-content">
+                          <div className="importer-badges">
+                            <Badge tone={t.banned ? "red" : "green"}>
+                              {t.banned ? "Avoid" : "Approved"}
+                            </Badge>
+                            <strong>"{t.term}"</strong>
+                            {t.preferred && <span>→ Prefer "{t.preferred}"</span>}
+                          </div>
+                          {t.notes && <small>{t.notes}</small>}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="modal-actions">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          {extracted && (
+            <Button
+              icon={Sparkles}
+              disabled={saving || totalSelected === 0}
+              onClick={handleSave}
+            >
+              {saving ? "Importing…" : `Import ${totalSelected} selected into Library`}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function Library({ sources, role, onSave, onBulkImport }) {
   const [tab, setTab] = useState("Approved facts");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(null);
-  const manager = role === "manager";
+  const [importingDoc, setImportingDoc] = useState(false);
+  const manager = role === "manager" || role === "reviewer" || role === "admin";
   const visible = sources.filter(
     (source) =>
       source.type === tab &&
@@ -213,9 +540,18 @@ export function Library({ sources, role, onSave }) {
         description="The approved sources behind your brand checks and editorial decisions."
         actions={
           manager && (
-            <Button icon={Plus} onClick={() => setEditing({})}>
-              Add {singular[tab]}
-            </Button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <Button
+                variant="secondary"
+                icon={UploadCloud}
+                onClick={() => setImportingDoc(true)}
+              >
+                Import document
+              </Button>
+              <Button icon={Plus} onClick={() => setEditing({})}>
+                Add {singular[tab]}
+              </Button>
+            </div>
           )
         }
       />
@@ -349,6 +685,16 @@ export function Library({ sources, role, onSave }) {
           type={tab}
           onSave={onSave}
           onClose={() => setEditing(null)}
+        />
+      )}
+      {importingDoc && (
+        <PolicyDocumentImporter
+          onClose={() => setImportingDoc(false)}
+          onImportSuccess={(newSources, filename) => {
+            if (onBulkImport) {
+              onBulkImport(newSources, filename);
+            }
+          }}
         />
       )}
     </>

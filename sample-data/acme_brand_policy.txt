@@ -1,0 +1,21 @@
+ACME CLOUD BRAND & COMPLIANCE POLICY (2026 EDITION)
+===================================================
+
+1. BRAND VOICE & EDITORIAL GUIDELINES
+- Writers must always write in an active, confident, and professional tone.
+- Superlatives such as "the greatest tool ever" or "unbeatable performance" are strictly prohibited without independent third-party audit evidence.
+- Every customer-facing promotional communication offering a discount must clearly include the disclaimer: "Terms and conditions apply."
+- Ensure all technical documentation maintains a minimum readability grade level suitable for business professionals.
+
+2. VERIFIED PRODUCT FACTS & PRICING
+- The Acme Starter Plan is priced at ₹1,299 per month and includes up to 5 team members.
+- The Acme Enterprise Plan guarantees a 99.95% system uptime SLA with 24/7 dedicated telephone support.
+- All Acme data centers maintain ISO-27001 and SOC-2 Type II certifications.
+- The global data retention limit for trial accounts is strictly 30 days.
+
+3. TERMINOLOGY & APPROVED VOCABULARY
+- Never use "cheap tier" or "budget plan" -> Always use "Starter Plan".
+- Do not use "guaranteed results" -> Prefer "proven workflow improvements".
+- Avoid the term "foolproof" -> Prefer "robust and reliable".
+- Approved company tagline: "Acme Cloud - Infrastructure you can trust."
+

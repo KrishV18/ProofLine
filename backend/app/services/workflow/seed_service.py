@@ -37,7 +37,7 @@ def seed_sample_data(db: Session) -> dict:
         ("creator@proofline.ai", "creator12345", Role.CREATOR.value, "Content Creator"),
         ("reviewer@proofline.ai", "reviewer12345", Role.REVIEWER.value, "Compliance Reviewer"),
         ("writer@studionorth.demo", "proofline-demo", Role.CREATOR.value, "Studio North Writer"),
-        ("manager@studionorth.demo", "proofline-demo", Role.REVIEWER.value, "Studio North Manager"),
+        ("manager@studionorth.demo", "proofline-demo", Role.MANAGER.value, "Studio North Manager"),
     ]
     created_users = 0
     for email, pw, role, full_name in demo_users:

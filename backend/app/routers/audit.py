@@ -16,7 +16,7 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 @router.get("")
 async def get_audit_log(
-    current_user: User = Depends(require_role("admin", "manager", "reviewer")),
+    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Get the immutable audit log entries for the organisation."""

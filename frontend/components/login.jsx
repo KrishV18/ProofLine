@@ -61,14 +61,16 @@ export default function Login({ onLogin }) {
   }, []);
 
   const trimmedCompany = companyInput.trim();
-  const matchedCompany = companies.find(
-    (c) => c.name.trim().toLowerCase() === trimmedCompany.toLowerCase()
-  );
-
   const isDemoCompany =
     trimmedCompany.toLowerCase().includes("proofline") ||
     trimmedCompany.toLowerCase().includes("studio north") ||
     trimmedCompany.toLowerCase() === "demo";
+
+  const matchedCompany = companies.find(
+    (c) =>
+      c.name.trim().toLowerCase() === trimmedCompany.toLowerCase() ||
+      (isDemoCompany && (c.name === "ProofLine Demo Org" || c.name.toLowerCase().includes("demo")))
+  );
 
   function handleCompanyNext() {
     if (!trimmedCompany) {
@@ -150,43 +152,58 @@ export default function Login({ onLogin }) {
 
   return (
     <main className="login">
-      <section className="login-story">
+      <section
+        className="login-story"
+        style={{
+          background: "linear-gradient(135deg, #090d16 0%, #0f172a 45%, #064e43 100%)",
+        }}
+      >
         <Wordmark />
         <div className="login-story-content">
-          <p className="eyebrow">
+          <p className="eyebrow" style={{ color: "#5eead4" }}>
             <span className="signal" /> Pre-publication review
           </p>
-          <h1>
+          <h1 style={{ fontFamily: "var(--sans)", fontWeight: 800, letterSpacing: "-0.03em" }}>
             Check it before
             <br />
-            you publish it<span>.</span>
+            you publish it<span style={{ color: "#2dd4bf" }}>.</span>
           </h1>
-          <p className="login-tagline">
-            A shared workspace for better drafts, evidence-backed feedback, and
-            approvals you can trace.
+          <p className="login-tagline" style={{ color: "#94a3b8" }}>
+            The automated brand safety net. Cross-reference every draft against
+            pricing sheets, tone guidelines, and legal requirements with instant AI verification.
           </p>
           <div className="login-steps">
             {[
               ["Draft", PenLine],
-              ["Evidence", FileCheck2],
-              ["Approval", ShieldCheck],
+              ["Verify", FileCheck2],
+              ["Approve", ShieldCheck],
             ].map(([name, Icon]) => (
               <div className="login-step" key={name}>
-                <span>
-                  <Icon size={23} strokeWidth={1.7} />
+                <span style={{ background: "rgba(20, 184, 166, 0.15)", borderColor: "#14b8a6", color: "#5eead4" }}>
+                  <Icon size={22} strokeWidth={1.8} />
                 </span>
                 {name}
               </div>
             ))}
           </div>
         </div>
-        <p className="login-story-footer">
-          <span>ProofLine</span>
+        <p className="login-story-footer" style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", color: "#64748b" }}>
+          <span>ProofLine Governance</span>
           <span>Brand review workspace</span>
         </p>
       </section>
 
       <section className="login-panel">
+        <div
+          style={{
+            width: "min(100%, 460px)",
+            background: "#ffffff",
+            padding: "36px 32px",
+            borderRadius: "24px",
+            boxShadow: "0 10px 30px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)",
+            border: "1px solid rgba(0, 0, 0, 0.06)",
+          }}
+        >
         {/* ── Step 1: Company Input ── */}
         {step === "company" && (
           <form
@@ -227,6 +244,7 @@ export default function Login({ onLogin }) {
                   list="companies-list"
                 />
                 <datalist id="companies-list">
+                  <option value="Studio North" />
                   {companies.map((c) => (
                     <option key={c.id} value={c.name} />
                   ))}
@@ -241,8 +259,8 @@ export default function Login({ onLogin }) {
               </p>
             )}
             {matchedCompany && (
-              <p className="muted" style={{ fontSize: "0.8rem", color: "var(--teal)" }}>
-                ✓ Company found — continue to sign in.
+              <p className="muted" style={{ fontSize: "0.8rem", color: "var(--teal)", display: "flex", alignItems: "center", gap: 5 }}>
+                <Check size={14} /> Company found — continue to sign in.
               </p>
             )}
 
@@ -479,6 +497,7 @@ export default function Login({ onLogin }) {
             </Button>
           </form>
         )}
+        </div>
       </section>
     </main>
   );

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Optional
-from fastapi import APIRouter, Depends, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -14,6 +14,8 @@ from app.core.roles import require_role
 from app.db import get_db
 from app.models.source import Fact, GuidelineRule, Term
 from app.models.user import User
+from app.services.parsing.parser import parse_document
+from app.services.workflow.guideline_extractor import extract_guidelines_from_text
 from app.services.workflow.seed_service import seed_sample_data
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -39,6 +41,12 @@ class TermCreate(BaseModel):
     preferred: Optional[str] = None
     banned: bool = False
     notes: Optional[str] = None
+
+
+class BulkImportRequest(BaseModel):
+    guidelines: List[GuidelineCreate] = []
+    facts: List[FactCreate] = []
+    terms: List[TermCreate] = []
 
 
 @router.get("")
@@ -112,7 +120,7 @@ async def list_sources(
 @router.post("/guidelines", status_code=status.HTTP_201_CREATED)
 async def create_guideline(
     req: GuidelineCreate,
-    current_user: User = Depends(require_role("admin", "manager")),
+    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned guideline rule for the organisation."""
@@ -165,7 +173,7 @@ async def create_guideline(
 @router.post("/facts", status_code=status.HTTP_201_CREATED)
 async def create_fact(
     req: FactCreate,
-    current_user: User = Depends(require_role("admin", "manager")),
+    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned fact entry for the organisation."""
@@ -225,7 +233,7 @@ async def create_fact(
 @router.post("/terms", status_code=status.HTTP_201_CREATED)
 async def create_term(
     req: TermCreate,
-    current_user: User = Depends(require_role("admin", "manager")),
+    current_user: User = Depends(require_role("manager", "reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
     """Upload or create a versioned terminology entry for the organisation."""
@@ -294,3 +302,159 @@ async def rag_search(
     from app.services.rag.lexical import search_rag_knowledge
 
     return search_rag_knowledge(query=query, top_k=top_k)
+
+
+@router.post("/extract-document")
+async def extract_document_sources(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+):
+    """Extract guidelines, verified facts, and terminology from an uploaded document."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        raw_text, doc_type = parse_document(file.filename, content)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to parse document: {exc}")
+
+    if not raw_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No readable text could be extracted from this document."
+        )
+
+    result = extract_guidelines_from_text(raw_text, filename=file.filename)
+    return result.model_dump()
+
+
+@router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
+async def bulk_import_sources(
+    req: BulkImportRequest,
+    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Import multiple extracted guidelines, facts, and terms into the brand library."""
+    org_id = current_user.organisation_id
+
+    imported_guidelines = 0
+    imported_facts = 0
+    imported_terms = 0
+
+    # 1. Guidelines
+    for g in req.guidelines:
+        rule_id = g.rule_id.strip()
+        if not rule_id or not g.text.strip():
+            continue
+
+        latest = db.scalars(
+            select(GuidelineRule)
+            .where(GuidelineRule.organisation_id == org_id, GuidelineRule.rule_id == rule_id)
+            .order_by(desc(GuidelineRule.version))
+        ).first()
+
+        next_ver = (latest.version + 1) if latest else 1
+        if latest and latest.is_active:
+            latest.is_active = False
+            db.flush()
+
+        new_rule = GuidelineRule(
+            organisation_id=org_id,
+            rule_id=rule_id,
+            rule_text=g.text.strip(),
+            category=g.category or "General",
+            version=next_ver,
+            is_active=True,
+            created_by=current_user.id,
+        )
+        db.add(new_rule)
+        imported_guidelines += 1
+
+    # 2. Facts
+    for f in req.facts:
+        stmt = f.statement.strip()
+        if not stmt:
+            continue
+        fact_key = (f.fact_key or f"FACT-{uuid.uuid4().hex[:6].upper()}").strip()
+
+        latest = db.scalars(
+            select(Fact)
+            .where(Fact.organisation_id == org_id, Fact.fact_key == fact_key)
+            .order_by(desc(Fact.version))
+        ).first()
+
+        next_ver = (latest.version + 1) if latest else 1
+        if latest and latest.is_active:
+            latest.is_active = False
+            db.flush()
+
+        new_fact = Fact(
+            organisation_id=org_id,
+            fact_key=fact_key,
+            statement=stmt,
+            value=f.value or "",
+            owner=f.owner or "Imported Policy",
+            source=f.source or "Document Import",
+            expires_on=f.expires_on,
+            version=next_ver,
+            is_active=True,
+            created_by=current_user.id,
+        )
+        db.add(new_fact)
+        imported_facts += 1
+
+    # 3. Terms
+    for t in req.terms:
+        term_str = t.term.strip()
+        if not term_str:
+            continue
+
+        latest = db.scalars(
+            select(Term)
+            .where(Term.organisation_id == org_id, Term.term == term_str)
+            .order_by(desc(Term.version))
+        ).first()
+
+        next_ver = (latest.version + 1) if latest else 1
+        if latest and latest.is_active:
+            latest.is_active = False
+            db.flush()
+
+        new_term = Term(
+            organisation_id=org_id,
+            term=term_str,
+            preferred=t.preferred,
+            banned=t.banned,
+            notes=t.notes or "",
+            version=next_ver,
+            is_active=True,
+        )
+        db.add(new_term)
+        imported_terms += 1
+
+    db.flush()
+    log_action(
+        db=db,
+        organisation_id=org_id,
+        user_id=current_user.id,
+        action="sources_bulk_imported",
+        entity="source",
+        entity_id=None,
+        details={
+            "guidelines": imported_guidelines,
+            "facts": imported_facts,
+            "terms": imported_terms,
+        },
+    )
+    db.commit()
+
+    return {
+        "status": "success",
+        "imported": {
+            "guidelines": imported_guidelines,
+            "facts": imported_facts,
+            "terms": imported_terms,
+            "total": imported_guidelines + imported_facts + imported_terms,
+        },
+    }
