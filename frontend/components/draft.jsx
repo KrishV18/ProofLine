@@ -10,6 +10,7 @@ import {
   FileCheck2,
   FileText,
   History,
+  Info,
   Link2,
   LockKeyhole,
   MessageSquare,
@@ -291,7 +292,7 @@ function Editor({ draft, onSave, onCancel }) {
                 gap: 8,
               }}
             >
-              <Sparkles size={15} style={{ flexShrink: 0, marginTop: 2, color: "#16a34a" }} />
+              <Info size={15} style={{ flexShrink: 0, marginTop: 2, color: "#0d9488" }} />
               <div>
                 <strong>Why use this?</strong> You can leave these blank. Or fill them in so ProofLine warns you if future edits accidentally dilute your main goal or target reader.
               </div>
