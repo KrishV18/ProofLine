@@ -620,19 +620,12 @@ async def purge_all_org_drafts(
     org_id = str(current_user.organisation_id)
 
     try:
-        # Disable PostgreSQL triggers that enforce immutability on receipts/versions/audit
-        for stmt in [
-            "ALTER TABLE claim_receipts DISABLE TRIGGER trg_claim_receipts_immutable",
-            "ALTER TABLE claim_receipts DISABLE TRIGGER trg_claim_receipts_no_truncate",
-            "ALTER TABLE draft_versions DISABLE TRIGGER trg_draft_versions_immutable_content",
-            "ALTER TABLE audit_log DISABLE TRIGGER trg_audit_log_immutable",
-            "ALTER TABLE audit_log DISABLE TRIGGER trg_audit_log_no_truncate",
-            "SET session_replication_role = 'replica'",
-        ]:
-            try:
-                db.execute(sql_text(stmt))
-            except Exception:
-                pass
+        # Drop immutability triggers (allowed for table owner) so purge can proceed
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_claim_receipts_immutable ON claim_receipts"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_claim_receipts_no_truncate ON claim_receipts"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_draft_versions_immutable_content ON draft_versions"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_audit_log_immutable ON audit_log"))
+        db.execute(sql_text("DROP TRIGGER IF EXISTS trg_audit_log_no_truncate ON audit_log"))
 
         if all_orgs:
             # Nuke everything — full reset
@@ -656,25 +649,34 @@ async def purge_all_org_drafts(
             db.execute(sql_text("DELETE FROM draft_versions WHERE organisation_id = :oid"), {"oid": org_id})
             db.execute(sql_text("DELETE FROM drafts WHERE organisation_id = :oid"), {"oid": org_id})
 
-        db.commit()
+        # Re-create immutability triggers
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_draft_versions_immutable_content
+            BEFORE UPDATE OR DELETE ON draft_versions
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_content()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_audit_log_immutable
+            BEFORE UPDATE OR DELETE ON audit_log
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_audit_log_no_truncate
+            BEFORE TRUNCATE ON audit_log
+            FOR EACH STATEMENT EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_claim_receipts_immutable
+            BEFORE UPDATE OR DELETE ON claim_receipts
+            FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
+        db.execute(sql_text("""
+            CREATE TRIGGER trg_claim_receipts_no_truncate
+            BEFORE TRUNCATE ON claim_receipts
+            FOR EACH STATEMENT EXECUTE FUNCTION trg_fn_immutable_row()
+        """))
 
-        # Re-enable triggers
-        for stmt in [
-            "SET session_replication_role = 'origin'",
-            "ALTER TABLE claim_receipts ENABLE TRIGGER trg_claim_receipts_immutable",
-            "ALTER TABLE claim_receipts ENABLE TRIGGER trg_claim_receipts_no_truncate",
-            "ALTER TABLE draft_versions ENABLE TRIGGER trg_draft_versions_immutable_content",
-            "ALTER TABLE audit_log ENABLE TRIGGER trg_audit_log_immutable",
-            "ALTER TABLE audit_log ENABLE TRIGGER trg_audit_log_no_truncate",
-        ]:
-            try:
-                db.execute(sql_text(stmt))
-            except Exception:
-                pass
-        try:
-            db.commit()
-        except Exception:
-            pass
+        db.commit()
 
         return {
             "message": "All draft data purged.",
@@ -683,9 +685,23 @@ async def purge_all_org_drafts(
         }
     except Exception as exc:
         db.rollback()
-        # Attempt to restore replication role even on error
+        # Always attempt to restore triggers if they were dropped
         try:
-            db.execute(sql_text("SET session_replication_role = 'origin'"))
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_draft_versions_immutable_content
+                BEFORE UPDATE OR DELETE ON draft_versions
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_content()
+            """))
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_audit_log_immutable
+                BEFORE UPDATE OR DELETE ON audit_log
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+            """))
+            db.execute(sql_text("""
+                CREATE TRIGGER trg_claim_receipts_immutable
+                BEFORE UPDATE OR DELETE ON claim_receipts
+                FOR EACH ROW EXECUTE FUNCTION trg_fn_immutable_row()
+            """))
             db.commit()
         except Exception:
             pass
