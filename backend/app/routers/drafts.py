@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_action
 from app.core.roles import require_role
 from app.db import get_db
+from app.models.approval import Approval
 from app.models.claim_receipt import Claim, ClaimReceipt
 from app.models.comment import Comment
 from app.models.draft import Draft, DraftVersion
@@ -606,59 +607,58 @@ async def get_receipt(
 
 @router.delete("/purge-all", status_code=status.HTTP_200_OK)
 async def purge_all_org_drafts(
+    all_orgs: bool = False,
     current_user: User = Depends(require_role("admin", "manager", "reviewer")),
     db: Session = Depends(get_db),
 ):
     """
-    Admin/Manager: Delete ALL draft data (findings, claims, comments, versions,
-    drafts) for the current organisation. Used for dev/data-reset only.
-    Data is scoped to the caller's organisation_id — cross-org deletion is impossible.
+    Admin/Manager/Reviewer: Delete ALL draft data (findings, claims, receipts, approvals,
+    comments, versions, drafts).
+    If all_orgs=True, deletes across all organisations (full test data reset).
+    If all_orgs=False, scopes deletion strictly to current_user.organisation_id.
     """
     from sqlalchemy import delete as sa_delete
 
     org_id = current_user.organisation_id
-
-    # Collect all draft IDs for this org first
-    draft_ids = db.scalars(
-        select(Draft.id).where(Draft.organisation_id == org_id)
-    ).all()
-
-    if not draft_ids:
-        return {"deleted": 0, "message": "No drafts found for this organisation."}
-
-    # Collect all version IDs for these drafts
-    version_ids = db.scalars(
-        select(DraftVersion.id).where(DraftVersion.draft_id.in_(draft_ids))
-    ).all()
-
     deleted_counts = {}
 
-    # Delete child rows first (FK order)
-    if version_ids:
-        r = db.execute(sa_delete(Finding).where(Finding.version_id.in_(version_ids)))
-        deleted_counts["findings"] = r.rowcount
-
-        r = db.execute(sa_delete(Claim).where(Claim.version_id.in_(version_ids)))
-        deleted_counts["claims"] = r.rowcount
-
-    r = db.execute(sa_delete(ClaimReceipt).where(ClaimReceipt.draft_id.in_(draft_ids)))
-    deleted_counts["receipts"] = r.rowcount
-
-    r = db.execute(sa_delete(Comment).where(Comment.draft_id.in_(draft_ids)))
-    deleted_counts["comments"] = r.rowcount
-
-    if version_ids:
-        r = db.execute(sa_delete(DraftVersion).where(DraftVersion.id.in_(version_ids)))
-        deleted_counts["versions"] = r.rowcount
-
-    r = db.execute(sa_delete(Draft).where(Draft.organisation_id == org_id))
-    deleted_counts["drafts"] = r.rowcount
+    if all_orgs:
+        deleted_counts["findings"] = db.execute(sa_delete(Finding)).rowcount
+        deleted_counts["claims"] = db.execute(sa_delete(Claim)).rowcount
+        deleted_counts["receipts"] = db.execute(sa_delete(ClaimReceipt)).rowcount
+        deleted_counts["approvals"] = db.execute(sa_delete(Approval)).rowcount
+        deleted_counts["comments"] = db.execute(sa_delete(Comment)).rowcount
+        deleted_counts["versions"] = db.execute(sa_delete(DraftVersion)).rowcount
+        deleted_counts["drafts"] = db.execute(sa_delete(Draft)).rowcount
+    else:
+        deleted_counts["findings"] = db.execute(
+            sa_delete(Finding).where(Finding.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["claims"] = db.execute(
+            sa_delete(Claim).where(Claim.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["receipts"] = db.execute(
+            sa_delete(ClaimReceipt).where(ClaimReceipt.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["approvals"] = db.execute(
+            sa_delete(Approval).where(Approval.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["comments"] = db.execute(
+            sa_delete(Comment).where(Comment.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["versions"] = db.execute(
+            sa_delete(DraftVersion).where(DraftVersion.organisation_id == org_id)
+        ).rowcount
+        deleted_counts["drafts"] = db.execute(
+            sa_delete(Draft).where(Draft.organisation_id == org_id)
+        ).rowcount
 
     db.commit()
 
     return {
-        "message": "All draft data purged for this organisation.",
-        "organisation_id": str(org_id),
+        "message": "All draft data purged.",
+        "all_orgs": all_orgs,
+        "organisation_id": str(org_id) if not all_orgs else "all",
         "deleted": deleted_counts,
     }
 
