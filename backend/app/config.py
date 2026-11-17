@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536
 
-    cors_origins: Union[str, List[str]] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    cors_origins: Union[str, List[str]] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://prooflineapp.cv",
+        "https://www.prooflineapp.cv",
+    ]
 
     @field_validator("database_url", "test_database_url", mode="before")
     @classmethod
