@@ -11,6 +11,7 @@ from app.services.workflow.guideline_extractor import (
     extract_guidelines_from_text,
     ExtractedPolicyResult,
 )
+from app.services.workflow.seed_service import seed_sample_data
 
 
 def test_parse_document_text():
@@ -90,96 +91,98 @@ def test_heuristic_guideline_extraction():
     assert term.banned is True
 
 
-def test_extract_document_endpoint_empty_file():
-    with TestClient(app) as client:
-        # Login first to get JWT
-        login_res = client.post("/auth/login", json={"email": "admin@proofline.ai", "password": "admin12345"})
-        token = login_res.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+def test_extract_document_endpoint_empty_file(client, db_session):
+    seed_sample_data(db_session)
+    # Login first to get JWT
+    login_res = client.post("/auth/login", json={"email": "admin@proofline.ai", "password": "admin12345"})
+    assert login_res.status_code == 200, f"Login failed: {login_res.text}"
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
-        # Empty file
-        res = client.post(
-            "/sources/extract-document",
-            files={"file": ("empty.txt", b"", "text/plain")},
-            headers=headers,
-        )
-        assert res.status_code == 400
-        assert "empty" in res.json()["detail"].lower()
+    # Empty file
+    res = client.post(
+        "/sources/extract-document",
+        files={"file": ("empty.txt", b"", "text/plain")},
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "empty" in res.json()["detail"].lower()
 
 
-def test_extract_and_bulk_import_flow():
-    with TestClient(app) as client:
-        # Login as manager
-        login_res = client.post("/auth/login", json={"email": "admin@proofline.ai", "password": "admin12345"})
-        token = login_res.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+def test_extract_and_bulk_import_flow(client, db_session):
+    seed_sample_data(db_session)
+    # Login as manager
+    login_res = client.post("/auth/login", json={"email": "admin@proofline.ai", "password": "admin12345"})
+    assert login_res.status_code == 200, f"Login failed: {login_res.text}"
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
-        # Upload a valid policy doc
-        doc_content = b"""
-        Acme Corp Compliance Guide:
-        All outbound messages must include an unsubscribe link.
-        The pro tier costs $49/mo.
-        Avoid 'foolproof' in all copy.
-        """
-        extract_res = client.post(
-            "/sources/extract-document",
-            files={"file": ("acme_policy.txt", doc_content, "text/plain")},
-            headers=headers,
-        )
-        assert extract_res.status_code == 200
-        data = extract_res.json()
-        assert "guidelines" in data
-        assert "facts" in data
-        assert "terms" in data
+    # Upload a valid policy doc
+    doc_content = b"""
+    Acme Corp Compliance Guide:
+    All outbound messages must include an unsubscribe link.
+    The pro tier costs $49/mo.
+    Avoid 'foolproof' in all copy.
+    """
+    extract_res = client.post(
+        "/sources/extract-document",
+        files={"file": ("acme_policy.txt", doc_content, "text/plain")},
+        headers=headers,
+    )
+    assert extract_res.status_code == 200
+    data = extract_res.json()
+    assert "guidelines" in data
+    assert "facts" in data
+    assert "terms" in data
 
-        # Now test bulk-import
-        import_payload = {
-            "guidelines": [
-                {
-                    "rule_id": "RULE-TEST-001",
-                    "text": "All outbound messages must include an unsubscribe link.",
-                    "category": "Legal",
-                }
-            ],
-            "facts": [
-                {
-                    "fact_key": "FACT-TEST-001",
-                    "statement": "The pro tier costs $49/mo.",
-                    "value": "$49/mo",
-                    "owner": "Finance",
-                }
-            ],
-            "terms": [
-                {
-                    "term": "foolproof",
-                    "preferred": "reliable",
-                    "banned": True,
-                    "notes": "Do not make absolute claims.",
-                }
-            ],
-        }
+    # Now test bulk-import
+    import_payload = {
+        "guidelines": [
+            {
+                "rule_id": "RULE-TEST-001",
+                "text": "All outbound messages must include an unsubscribe link.",
+                "category": "Legal",
+            }
+        ],
+        "facts": [
+            {
+                "fact_key": "FACT-TEST-001",
+                "statement": "The pro tier costs $49/mo.",
+                "value": "$49/mo",
+                "owner": "Finance",
+            }
+        ],
+        "terms": [
+            {
+                "term": "foolproof",
+                "preferred": "reliable",
+                "banned": True,
+                "notes": "Do not make absolute claims.",
+            }
+        ],
+    }
 
-        import_res = client.post(
-            "/sources/bulk-import",
-            json=import_payload,
-            headers=headers,
-        )
-        assert import_res.status_code == 201
-        res_data = import_res.json()
-        assert res_data["status"] == "success"
-        assert res_data["imported"]["guidelines"] == 1
-        assert res_data["imported"]["facts"] == 1
-        assert res_data["imported"]["terms"] == 1
+    import_res = client.post(
+        "/sources/bulk-import",
+        json=import_payload,
+        headers=headers,
+    )
+    assert import_res.status_code == 201
+    res_data = import_res.json()
+    assert res_data["status"] == "success"
+    assert res_data["imported"]["guidelines"] == 1
+    assert res_data["imported"]["facts"] == 1
+    assert res_data["imported"]["terms"] == 1
 
-        # Verify that GET /sources returns the newly imported items
-        sources_res = client.get("/sources", headers=headers)
-        assert sources_res.status_code == 200
-        sources_data = sources_res.json()
-        rule_ids = [g["rule_id"] for g in sources_data["guidelines"]]
-        fact_keys = [f["fact_key"] for f in sources_data["facts"]]
-        terms = [t["term"] for t in sources_data["terms"]]
+    # Verify that GET /sources returns the newly imported items
+    sources_res = client.get("/sources", headers=headers)
+    assert sources_res.status_code == 200
+    sources_data = sources_res.json()
+    rule_ids = [g["rule_id"] for g in sources_data["guidelines"]]
+    fact_keys = [f["fact_key"] for f in sources_data["facts"]]
+    terms = [t["term"] for t in sources_data["terms"]]
 
-        assert "RULE-TEST-001" in rule_ids
-        assert "FACT-TEST-001" in fact_keys
-        assert "foolproof" in terms
+    assert "RULE-TEST-001" in rule_ids
+    assert "FACT-TEST-001" in fact_keys
+    assert "foolproof" in terms
 

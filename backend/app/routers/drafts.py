@@ -69,7 +69,7 @@ def _content_hash(content: str) -> str:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_draft(
     req: DraftCreateRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Create a new draft with initial version 1."""
@@ -123,7 +123,7 @@ async def create_draft(
 async def upload_document_draft(
     file: UploadFile = File(...),
     channel: Optional[str] = None,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Upload a PDF, DOCX, or text file and automatically create a new draft."""
@@ -300,7 +300,7 @@ async def create_draft_version(
 @router.post("/{draft_id}/review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Trigger automated 4-layer review of draft's latest version."""
@@ -325,7 +325,7 @@ async def trigger_review(
 async def get_findings(
     draft_id: str,
     version: int,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Get all findings for a specific draft version."""
@@ -437,7 +437,7 @@ async def compute_diff(
 @router.post("/{draft_id}/request-review", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_request_review(
     draft_id: str,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Request human review of the draft, evaluating risk tier."""
@@ -453,7 +453,7 @@ async def trigger_request_review(
 async def add_comment(
     draft_id: str,
     req: CommentCreateRequest,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Add a comment to a draft."""
@@ -541,7 +541,7 @@ async def list_comments(
 async def record_decision(
     draft_id: str,
     req: DecisionRequest,
-    current_user: User = Depends(require_role("reviewer", "manager", "admin")),
+    current_user: User = Depends(require_role("reviewer", "manager")),
     db: Session = Depends(get_db),
 ):
     """Record an approval decision on a draft."""

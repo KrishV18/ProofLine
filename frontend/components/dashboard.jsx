@@ -19,7 +19,6 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
-  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import { formatDate } from "../lib/workflow.mjs";
