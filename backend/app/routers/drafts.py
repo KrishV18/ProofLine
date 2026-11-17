@@ -325,7 +325,7 @@ async def trigger_review(
 async def get_findings(
     draft_id: str,
     version: int,
-    current_user: User = Depends(require_role("creator", "reviewer", "manager")),
+    current_user: User = Depends(require_role("creator", "reviewer", "admin", "manager")),
     db: Session = Depends(get_db),
 ):
     """Get all findings for a specific draft version."""
